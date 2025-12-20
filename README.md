@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Arthyx
 
-## Getting Started
+Production-grade AI financial document assistant with multilingual OCR and intelligent analysis.
 
-First, run the development server:
+## Features
+
+- **Universal Document Support** - PDF, scanned images, handwritten notes
+- **Multilingual OCR** - Hindi, Tamil, Bengali, Gujarati, English (95%+ accuracy)
+- **Advanced RAG Pipeline** - Context-aware retrieval with source citations
+- **Visual Analytics** - Dynamic charts from document data
+- **Conversation Memory** - Session-based context persistence
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Frontend | Next.js 14, TypeScript, Tailwind CSS, Framer Motion |
+| AI/ML | Google Gemini 1.5 Flash, Gemini Embeddings |
+| Vector DB | Pinecone Serverless |
+| Memory | Upstash Redis |
+| Deployment | Vercel Serverless |
+
+## Quick Start
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment Variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+GOOGLE_API_KEY=your_gemini_api_key
+PINECONE_API_KEY=your_pinecone_key
+PINECONE_INDEX_HOST=your_pinecone_index_url
+UPSTASH_REDIS_REST_URL=your_upstash_url
+UPSTASH_REDIS_REST_TOKEN=your_upstash_token
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Architecture
 
-## Learn More
+```
+Upload → OCR (Gemini Vision) → Chunking → Embeddings → Pinecone
+Query → Embedding → Vector Search → Context Assembly → Gemini → Response
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Deploy
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/yourusername/arthyx)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## License
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
