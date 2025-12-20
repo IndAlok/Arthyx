@@ -5,9 +5,20 @@ import { upsertDocumentChunks, DocumentChunk } from "@/lib/pinecone";
 import { createSession, addDocument, getSession } from "@/lib/redis";
 
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
+const MAX_FILE_SIZE = 4 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: "Total upload size exceeds 10MB limit" },
+        { status: 413 }
+      );
+    }
+
     const formData = await request.formData();
     const files = formData.getAll("files") as File[];
     let sessionId = formData.get("sessionId") as string | null;
@@ -16,6 +27,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "No files provided" },
         { status: 400 }
+      );
+    }
+
+    const oversizedFiles = files.filter((f) => f.size > MAX_FILE_SIZE);
+    if (oversizedFiles.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Files too large (max 4MB each): ${oversizedFiles.map((f) => f.name).join(", ")}`,
+        },
+        { status: 413 }
       );
     }
 

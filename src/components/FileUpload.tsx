@@ -35,13 +35,34 @@ export default function FileUpload({
     setIsDragging(false);
   }, []);
 
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
+
   const processFiles = async (fileList: FileList | File[]) => {
+    const validExtensions = ["pdf", "png", "jpg", "jpeg", "webp"];
+    
     const newFiles = Array.from(fileList).filter((file) => {
       const ext = file.name.toLowerCase().split(".").pop();
-      return ["pdf", "png", "jpg", "jpeg", "webp"].includes(ext || "");
+      return validExtensions.includes(ext || "");
     });
 
     if (newFiles.length === 0) return;
+
+    const oversizedFiles = newFiles.filter((f) => f.size > MAX_FILE_SIZE);
+    if (oversizedFiles.length > 0) {
+      setFiles((prev) => [
+        ...prev,
+        ...oversizedFiles.map((f) => ({
+          name: f.name,
+          size: f.size,
+          status: "error" as const,
+          error: `File too large (max 4MB)`,
+        })),
+      ]);
+      const validFiles = newFiles.filter((f) => f.size <= MAX_FILE_SIZE);
+      if (validFiles.length === 0) return;
+      newFiles.length = 0;
+      newFiles.push(...validFiles);
+    }
 
     setFiles((prev) => [
       ...prev,
