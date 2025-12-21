@@ -9,6 +9,7 @@ import ChatInterface from "@/components/ChatInterface";
 import FileUpload from "@/components/FileUpload";
 import SourceSidebar from "@/components/SourceSidebar";
 import ChartRenderer from "@/components/ChartRenderer";
+import CursorGlow from "@/components/CursorGlow";
 
 interface Source {
   filename: string;
@@ -59,12 +60,15 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col">
-      <header className="px-6 py-4 border-b border-slate-800/50 glass">
+      <CursorGlow />
+      
+      <header className="px-6 py-4 border-b border-slate-800/50 glass relative z-20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/" className="flex items-center gap-3 group">
               <motion.div 
-                whileHover={{ scale: 1.05 }}
+                whileHover={{ scale: 1.05, rotate: 5 }}
+                whileTap={{ scale: 0.95 }}
                 className="w-10 h-10 rounded-xl overflow-hidden"
               >
                 <Image 
@@ -102,7 +106,9 @@ export default function Dashboard() {
 
           <div className="flex items-center gap-2">
             {sessionId && (
-              <button
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={() => setShowUpload(!showUpload)}
                 className={`p-2 rounded-lg transition-colors ${
                   showUpload 
@@ -112,16 +118,20 @@ export default function Dashboard() {
                 title="Upload more documents"
               >
                 <Upload className="w-5 h-5" />
-              </button>
+              </motion.button>
             )}
-            <Link
-              href="/"
-              className="p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
-              title="Home"
-            >
-              <Home className="w-5 h-5 text-slate-400" />
-            </Link>
-            <button
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Link
+                href="/"
+                className="p-2 rounded-lg hover:bg-slate-800/50 transition-colors block"
+                title="Home"
+              >
+                <Home className="w-5 h-5 text-slate-400" />
+              </Link>
+            </motion.div>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
               title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
@@ -131,12 +141,12 @@ export default function Dashboard() {
               ) : (
                 <PanelRightOpen className="w-5 h-5 text-slate-400" />
               )}
-            </button>
+            </motion.button>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden relative z-10">
         <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 overflow-hidden">
           <motion.div
             layout
@@ -150,9 +160,12 @@ export default function Dashboard() {
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center">
+                    <motion.div 
+                      whileHover={{ scale: 1.1, rotate: 10 }}
+                      className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center"
+                    >
                       <FileText className="w-5 h-5 text-emerald-400" />
-                    </div>
+                    </motion.div>
                     <div>
                       <h3 className="font-semibold text-white">
                         {sessionId ? "Add More Documents" : "Upload Documents (Optional)"}
@@ -165,12 +178,14 @@ export default function Dashboard() {
                     </div>
                   </div>
                   {showUpload && (
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setShowUpload(false)}
                       className="text-sm text-slate-400 hover:text-white transition-colors"
                     >
                       Cancel
-                    </button>
+                    </motion.button>
                   )}
                 </div>
                 <FileUpload
@@ -194,7 +209,7 @@ export default function Dashboard() {
             {chartConfig && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 satisfies number }}
+                animate={{ opacity: 1, y: 0 }}
               >
                 <ChartRenderer config={chartConfig} />
               </motion.div>

@@ -1,168 +1,195 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import {
-  FileSearch,
-  Languages,
-  LineChart,
-  Brain,
-  ArrowRight,
-  Shield,
-  Zap,
-} from "lucide-react";
+import { motion, useMotionValue, useSpring } from "framer-motion";
+import { ArrowRight, FileText, Brain, Zap, Shield, Globe, BarChart3 } from "lucide-react";
+import ParticleField from "@/components/ParticleField";
+import CursorGlow from "@/components/CursorGlow";
 
 const features = [
   {
-    icon: FileSearch,
-    title: "Universal Document Support",
-    description:
-      "PDF, Word, Excel, scanned images, handwritten notes - extract data from any format",
+    icon: FileText,
+    title: "Multi-Format Analysis",
+    description: "PDF, Word, Excel, images up to 50MB. Bank annual reports fully supported.",
+    gradient: "from-blue-500 to-cyan-500",
   },
   {
-    icon: Languages,
-    title: "Multilingual Processing",
-    description:
-      "Hindi, Tamil, Bengali, Gujarati, English and more with high accuracy",
+    icon: Globe,
+    title: "Indian Language OCR",
+    description: "Hindi, Tamil, Bengali, Gujarati, Telugu with 95%+ accuracy on scanned documents.",
+    gradient: "from-purple-500 to-pink-500",
   },
   {
     icon: Brain,
-    title: "Deep Understanding",
-    description:
-      "Context-aware analysis that understands financial data and derives insights",
+    title: "Pre-trained Knowledge",
+    description: "SEBI, RBI, Basel III, quantitative finance. No documents required for regulatory queries.",
+    gradient: "from-emerald-500 to-teal-500",
   },
   {
-    icon: LineChart,
-    title: "Visual Analytics",
-    description:
-      "Beautiful charts generated on-demand from your document data",
+    icon: BarChart3,
+    title: "Visual Analysis",
+    description: "Risk assessment, financial metrics, charts. Automatic visualization of numerical data.",
+    gradient: "from-orange-500 to-red-500",
   },
   {
     icon: Shield,
-    title: "Source Citations",
-    description:
-      "Every answer comes with exact references to your documents",
+    title: "Knowledge Graph",
+    description: "Neo4j-powered entity relationships. Risk contagion simulation across networks.",
+    gradient: "from-indigo-500 to-violet-500",
   },
   {
     icon: Zap,
-    title: "Real-time Processing",
-    description:
-      "Watch your documents being analyzed with live progress updates",
+    title: "Blazing Fast",
+    description: "Redis caching, session isolation, sub-second responses for repeated queries.",
+    gradient: "from-yellow-500 to-orange-500",
   },
 ];
 
 export default function Home() {
+  const [mounted, setMounted] = useState(false);
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  
+  const springConfig = { damping: 30, stiffness: 100 };
+  const rotateX = useSpring(useMotionValue(0), springConfig);
+  const rotateY = useSpring(useMotionValue(0), springConfig);
+
+  useEffect(() => {
+    setMounted(true);
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      const { clientX, clientY } = e;
+      const { innerWidth, innerHeight } = window;
+      
+      mouseX.set(clientX);
+      mouseY.set(clientY);
+      
+      const xPercent = (clientX / innerWidth - 0.5) * 2;
+      const yPercent = (clientY / innerHeight - 0.5) * 2;
+      
+      rotateX.set(yPercent * -5);
+      rotateY.set(xPercent * 5);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, [mouseX, mouseY, rotateX, rotateY]);
+
+  if (!mounted) return null;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div 
-          animate={{ 
-            scale: [1, 1.1, 1],
-            opacity: [0.1, 0.15, 0.1] 
-          }}
-          transition={{ duration: 8, repeat: Infinity }}
-          className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" 
-        />
-        <motion.div 
-          animate={{ 
-            scale: [1.1, 1, 1.1],
-            opacity: [0.15, 0.1, 0.15] 
-          }}
-          transition={{ duration: 8, repeat: Infinity, delay: 2 }}
-          className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-teal-500/10 rounded-full blur-3xl" 
-        />
-      </div>
-
-      <header className="relative z-10 px-6 py-4">
-        <nav className="max-w-7xl mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 group">
+      <ParticleField />
+      <CursorGlow />
+      
+      <div className="relative z-10">
+        <header className="fixed top-0 left-0 right-0 z-50 px-6 py-4">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
             <motion.div 
-              whileHover={{ scale: 1.05 }}
-              className="w-10 h-10 rounded-xl overflow-hidden"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="flex items-center gap-3"
             >
-              <Image 
-                src="/logo.png" 
-                alt="Arthyx" 
-                width={40} 
-                height={40}
-                className="w-full h-full object-cover"
-              />
+              <div className="w-10 h-10 rounded-xl overflow-hidden">
+                <Image src="/logo.png" alt="Arthyx" width={40} height={40} className="w-full h-full object-cover" />
+              </div>
+              <span className="text-xl font-bold text-white">Arthyx</span>
             </motion.div>
-            <span className="text-xl font-bold text-white">Arthyx</span>
-          </Link>
-          <Link
-            href="/dashboard"
-            className="px-4 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 text-white text-sm hover:bg-slate-700/50 transition-colors"
-          >
-            Launch App
-          </Link>
-        </nav>
-      </header>
-
-      <main className="relative z-10">
-        <section className="px-6 py-20 text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="max-w-4xl mx-auto"
-          >
-            <motion.div 
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm mb-8"
+            
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
             >
-              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-              Financial Document Intelligence
+              <Link
+                href="/dashboard"
+                className="group flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 hover:border-emerald-500/50 transition-all duration-300"
+              >
+                <span>Launch App</span>
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </Link>
             </motion.div>
+          </div>
+        </header>
 
-            <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight">
-              Understand Your
-              <br />
-              <span className="gradient-text">Financial Documents</span>
-            </h1>
-
-            <p className="text-xl text-slate-400 mb-10 max-w-2xl mx-auto">
-              Upload any document. Ask any question. Get instant,
-              accurate insights with source citations and visual analytics.
-            </p>
+        <section className="min-h-screen flex items-center justify-center px-6 pt-20">
+          <div className="max-w-5xl mx-auto text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+              style={{ rotateX, rotateY, transformPerspective: 1000 }}
+              className="mb-8"
+            >
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm mb-6">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Financial Document Intelligence
+              </div>
+              
+              <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight">
+                Analyze Financial
+                <br />
+                <span className="bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">
+                  Documents with AI
+                </span>
+              </h1>
+              
+              <p className="text-xl text-slate-400 max-w-2xl mx-auto mb-10">
+                Advanced RAG with knowledge graphs, multilingual OCR for Indian languages, 
+                and pre-trained expertise in SEBI regulations and quantitative finance.
+              </p>
+            </motion.div>
 
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
+              transition={{ delay: 0.3 }}
               className="flex flex-col sm:flex-row items-center justify-center gap-4"
             >
               <Link
                 href="/dashboard"
-                className="group px-8 py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold flex items-center gap-2 hover:scale-105 transition-transform glow"
+                className="group relative px-8 py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-emerald-500/30"
               >
-                Start Analyzing
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                <span className="relative z-10 flex items-center gap-2">
+                  Start Analyzing
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </span>
+                <motion.div
+                  className="absolute inset-0 bg-gradient-to-r from-teal-600 to-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                />
               </Link>
+              
+              <a
+                href="https://github.com/IndAlok/Arthyx"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-8 py-4 rounded-xl border border-slate-700 text-slate-300 font-medium hover:bg-slate-800/50 hover:border-slate-600 transition-all duration-300"
+              >
+                View on GitHub
+              </a>
             </motion.div>
-          </motion.div>
+          </div>
         </section>
 
-        <section className="px-6 py-20">
-          <div className="max-w-6xl mx-auto">
+        <section className="py-24 px-6">
+          <div className="max-w-7xl mx-auto">
             <motion.div
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               className="text-center mb-16"
             >
               <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-                Why Arthyx?
+                Built for Serious Financial Analysis
               </h2>
               <p className="text-slate-400 max-w-2xl mx-auto">
-                Built for the complexity of financial documents. Rooted
-                in Artha (meaning: wealth, value, purpose).
+                Not another chatbot. A comprehensive platform combining document intelligence, 
+                regulatory knowledge, and quantitative analytics.
               </p>
             </motion.div>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {features.map((feature, i) => (
                 <motion.div
                   key={feature.title}
@@ -170,18 +197,13 @@ export default function Home() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ delay: i * 0.1 }}
-                  whileHover={{ y: -5, transition: { duration: 0.2 } }}
-                  className="glass rounded-2xl p-6 hover:border-emerald-500/30 transition-all group cursor-default"
+                  whileHover={{ scale: 1.02, y: -5 }}
+                  className="group p-6 rounded-2xl bg-slate-800/30 border border-slate-700/50 hover:border-slate-600/50 transition-all duration-300"
                 >
-                  <motion.div 
-                    whileHover={{ scale: 1.1, rotate: 5 }}
-                    className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center mb-4"
-                  >
-                    <feature.icon className="w-6 h-6 text-emerald-400" />
-                  </motion.div>
-                  <h3 className="text-lg font-semibold text-white mb-2">
-                    {feature.title}
-                  </h3>
+                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
+                    <feature.icon className="w-6 h-6 text-white" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-white mb-2">{feature.title}</h3>
                   <p className="text-slate-400 text-sm">{feature.description}</p>
                 </motion.div>
               ))}
@@ -189,49 +211,38 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="px-6 py-20">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="max-w-4xl mx-auto text-center glass rounded-3xl p-12"
-          >
-            <h2 className="text-3xl font-bold text-white mb-4">
-              Ready to Transform Your Financial Analysis?
-            </h2>
-            <p className="text-slate-400 mb-8">
-              Start analyzing documents in seconds. No signup required.
-            </p>
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold hover:scale-105 transition-transform glow"
+        <section className="py-24 px-6 border-t border-slate-800/50">
+          <div className="max-w-4xl mx-auto text-center">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
             >
-              Get Started Free
-              <ArrowRight className="w-5 h-5" />
-            </Link>
-          </motion.div>
-        </section>
-      </main>
-
-      <footer className="relative z-10 px-6 py-8 border-t border-slate-800/50">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Image 
-              src="/logo.png" 
-              alt="Arthyx" 
-              width={32} 
-              height={32}
-              className="rounded-lg"
-            />
-            <span className="text-sm text-slate-400">
-              Arthyx © {new Date().getFullYear()}
-            </span>
+              <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">
+                Ready to Transform Your Analysis?
+              </h2>
+              <p className="text-slate-400 mb-10 max-w-2xl mx-auto">
+                Upload bank annual reports, regulatory filings, or any financial document. 
+                Get instant insights in English, Hindi, or any Indian language.
+              </p>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-2 px-10 py-5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold hover:scale-105 transition-transform shadow-2xl shadow-emerald-500/20"
+              >
+                Get Started Free
+                <ArrowRight className="w-5 h-5" />
+              </Link>
+            </motion.div>
           </div>
-          <p className="text-sm text-slate-500">
-            Financial Document Intelligence Platform
-          </p>
-        </div>
-      </footer>
+        </section>
+
+        <footer className="py-8 px-6 border-t border-slate-800/50">
+          <div className="max-w-7xl mx-auto flex items-center justify-between text-sm text-slate-500">
+            <span>Arthyx Financial Intelligence</span>
+            <span>Built with Next.js, Gemini, Neo4j, Pinecone</span>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

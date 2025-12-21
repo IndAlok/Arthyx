@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Arthyx | Financial Document Intelligence",
   description:
-    "Advanced multilingual financial document analysis. Upload documents in any format, get intelligent insights, visualizations, and accurate answers.",
+    "Advanced multilingual financial document analysis with RAG, knowledge graphs, and pre-trained SEBI/RBI expertise. Supports 50MB files and Indian languages.",
   keywords: [
     "financial analysis",
     "document analysis",
@@ -23,17 +23,30 @@ export const metadata: Metadata = {
     "Hindi",
     "multilingual",
     "AI assistant",
+    "SEBI",
+    "RBI",
+    "quantitative finance",
   ],
   authors: [{ name: "Arthyx" }],
   icons: {
-    icon: "/logo.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/logo.png", type: "image/png" },
+    ],
+    shortcut: "/logo.png",
     apple: "/logo.png",
   },
   openGraph: {
     title: "Arthyx | Financial Document Intelligence",
     description:
-      "Advanced multilingual financial document analysis powered by AI",
+      "Advanced multilingual financial document analysis powered by AI with SEBI/RBI expertise",
     type: "website",
+    images: ["/logo.png"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Arthyx | Financial Document Intelligence",
+    description: "Advanced multilingual financial document analysis powered by AI",
   },
 };
 
@@ -44,6 +57,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <link rel="icon" href="/logo.png" type="image/png" />
+        <link rel="shortcut icon" href="/logo.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/logo.png" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
