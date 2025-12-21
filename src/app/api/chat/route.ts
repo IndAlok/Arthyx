@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
         const [queryEmbedding] = await generateEmbeddings([message]);
 
         log("Querying documents with session filter");
-        const searchResults = await queryDocuments(queryEmbedding, sessionId, 15);
+        const searchResults = await queryDocuments(queryEmbedding, sessionId, 25);
 
         sources = searchResults.map((result) => {
           const metadata = result.metadata as {

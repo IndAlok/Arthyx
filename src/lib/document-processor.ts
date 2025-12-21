@@ -64,7 +64,7 @@ function extractTextFromExcel(buffer: Buffer): { text: string; sheets: number } 
       const sheet = workbook.Sheets[sheetName];
       const jsonData = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
       
-      fullText += `\n## Sheet: ${sheetName}\n`;
+      fullText += `\n=== SHEET: ${sheetName} ===\n`;
       if (jsonData.length > 0) {
         const headers = jsonData[0] || [];
         fullText += "| " + headers.map(String).join(" | ") + " |\n";
@@ -87,131 +87,53 @@ function extractTextFromPlainText(buffer: Buffer): string {
   return buffer.toString("utf-8");
 }
 
-function extractTextFromPDFNative(buffer: Buffer): { text: string; pages: number; hasText: boolean } {
-  log("Extracting text from PDF natively");
-  const startTime = Date.now();
-  
-  try {
-    const pdfString = buffer.toString("binary");
-    
-    const pageMatches = pdfString.match(/\/Type\s*\/Page[^s]/g);
-    const pageCount = pageMatches ? pageMatches.length : 1;
-    
-    let extractedText = "";
-    
-    const streamPattern = /stream\s*([\s\S]*?)endstream/gi;
-    let match;
-    
-    while ((match = streamPattern.exec(pdfString)) !== null) {
-      const streamContent = match[1];
-      
-      const textMatches = streamContent.match(/\(([^)]+)\)/g);
-      if (textMatches) {
-        for (const textMatch of textMatches) {
-          let text = textMatch.slice(1, -1);
-          
-          text = text
-            .replace(/\\n/g, "\n")
-            .replace(/\\r/g, "")
-            .replace(/\\t/g, " ")
-            .replace(/\\\(/g, "(")
-            .replace(/\\\)/g, ")")
-            .replace(/\\\\/g, "\\");
-          
-          if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
-            extractedText += text + " ";
-          }
-        }
-      }
-      
-      const tjMatches = streamContent.match(/\[(.*?)\]\s*TJ/g);
-      if (tjMatches) {
-        for (const tjMatch of tjMatches) {
-          const innerTexts = tjMatch.match(/\(([^)]*)\)/g);
-          if (innerTexts) {
-            for (const innerText of innerTexts) {
-              let text = innerText.slice(1, -1);
-              text = text.replace(/\\n/g, "\n").replace(/\\r/g, "");
-              if (text.length > 0) {
-                extractedText += text;
-              }
-            }
-          }
-        }
-        extractedText += " ";
-      }
-    }
-    
-    extractedText = extractedText
-      .replace(/\s+/g, " ")
-      .replace(/([a-z])([A-Z])/g, "$1 $2")
-      .trim();
-    
-    const hasSubstantialText = extractedText.length > 300;
-    
-    let formattedText = "";
-    if (hasSubstantialText && pageCount > 1) {
-      const charsPerPage = Math.ceil(extractedText.length / pageCount);
-      for (let i = 0; i < pageCount; i++) {
-        const start = i * charsPerPage;
-        const end = Math.min((i + 1) * charsPerPage, extractedText.length);
-        const pageText = extractedText.substring(start, end).trim();
-        if (pageText.length > 20) {
-          formattedText += `=== PAGE ${i + 1} ===\n${pageText}\n\n`;
-        }
-      }
-    } else {
-      formattedText = extractedText;
-    }
-    
-    log("PDF native extraction complete", { 
-      pages: pageCount,
-      textLength: extractedText.length,
-      hasText: hasSubstantialText,
-      duration: Date.now() - startTime
-    });
-    
-    return { 
-      text: formattedText || extractedText, 
-      pages: pageCount,
-      hasText: hasSubstantialText
-    };
-  } catch (error) {
-    log("PDF native extraction error", { error: String(error) });
-    return { text: "", pages: 1, hasText: false };
-  }
+function estimatePageCount(buffer: Buffer): number {
+  const pdfString = buffer.toString("binary");
+  const matches = pdfString.match(/\/Type\s*\/Page[^s]/g);
+  return matches ? matches.length : 1;
 }
 
-async function ocrWithVisionFast(
+async function extractWithGemini(
   buffer: Buffer,
   mimeType: string,
   filename: string,
+  estimatedPages: number,
   onProgress?: (step: string) => void
 ): Promise<{ text: string; pages: number; language: string }> {
-  log("Running fast OCR with Gemini Vision", { filename });
+  log("Extracting with Gemini", { filename, estimatedPages, bufferSize: buffer.length });
   
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-  const maxSize = 4 * 1024 * 1024;
-  const useBuffer = buffer.length > maxSize ? buffer.subarray(0, maxSize) : buffer;
-  
+  const maxBytes = 10 * 1024 * 1024;
+  const useBuffer = buffer.length > maxBytes ? buffer.subarray(0, maxBytes) : buffer;
   const base64Data = useBuffer.toString("base64");
 
-  const prompt = `Extract text from this document QUICKLY. Focus on key content only.
+  const prompt = `You are a financial document analyzer. Extract ALL text content from this document with COMPLETE ACCURACY.
 
-Report: [PAGES: X] [LANGUAGE: X]
+REQUIREMENTS:
+1. Extract EVERY financial figure, amount, percentage, ratio
+2. Include ALL company names, regulatory references (SEBI, RBI, Basel)
+3. Preserve table data as markdown tables with | separators
+4. For each distinct section/page, mark with: === PAGE X ===
+5. Extract Indian language content (Hindi, Tamil, etc.) with proper Unicode
+6. Report total pages: [TOTAL_PAGES: X]
+7. Detect language: [LANGUAGE: X]
 
-Extract:
-- Headlines and summaries
-- Key financial figures
-- Company names
-- Important dates
+CRITICAL FINANCIAL DATA TO CAPTURE:
+- NPA (GNPA, NNPA percentages)
+- CAR (Capital Adequacy Ratio)
+- NIM (Net Interest Margin)
+- ROA, ROE percentages
+- Total Assets, Liabilities, Revenue
+- Profit/Loss figures
+- All amounts in crores/lakhs
 
-Format concisely. Skip decorative content.`;
+Extract the COMPLETE text, not summaries. Be thorough.`;
 
   try {
-    onProgress?.("Running OCR...");
+    const startTime = Date.now();
+    onProgress?.(`Processing ${estimatedPages} pages with AI...`);
     
     const result = await model.generateContent([
       prompt,
@@ -220,30 +142,36 @@ Format concisely. Skip decorative content.`;
 
     const response = result.response.text();
     
-    const pagesMatch = response.match(/\[PAGES:\s*(\d+)\]/);
-    const pages = pagesMatch ? parseInt(pagesMatch[1], 10) : 1;
+    const pagesMatch = response.match(/\[TOTAL_PAGES:\s*(\d+)\]/);
+    const pages = pagesMatch ? parseInt(pagesMatch[1], 10) : estimatedPages;
     
     const languageMatch = response.match(/\[LANGUAGE:\s*([^\]]+)\]/);
     const language = languageMatch ? languageMatch[1].trim() : "English";
     
     const text = response
-      .replace(/\[PAGES:\s*\d+\]/g, "")
+      .replace(/\[TOTAL_PAGES:\s*\d+\]/g, "")
       .replace(/\[LANGUAGE:\s*[^\]]+\]/g, "")
       .trim();
 
-    log("OCR complete", { pages, textLength: text.length });
+    log("Gemini extraction complete", { 
+      pages, 
+      textLength: text.length,
+      duration: Date.now() - startTime
+    });
+    
+    onProgress?.(`Extracted ${pages} pages`);
     
     return { text, pages, language };
   } catch (error) {
-    log("OCR error", { error: String(error) });
+    log("Gemini extraction error", { error: String(error) });
     throw error;
   }
 }
 
-function createChunks(text: string, maxChunks: number = 25): DocumentChunk[] {
+function createChunks(text: string, maxChunks: number = 50): DocumentChunk[] {
   const chunks: DocumentChunk[] = [];
-  const chunkSize = 800;
-  const overlap = 100;
+  const chunkSize = 1000;
+  const overlap = 150;
   
   const pagePattern = /===\s*PAGE\s*(\d+)\s*===/gi;
   const pages: Array<{ pageNumber: number; content: string }> = [];
@@ -255,7 +183,7 @@ function createChunks(text: string, maxChunks: number = 25): DocumentChunk[] {
   while ((match = pagePattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
       const content = text.substring(lastIndex, match.index).trim();
-      if (content.length > 50) {
+      if (content.length > 100) {
         pages.push({ pageNumber: currentPageNum, content });
       }
     }
@@ -265,25 +193,35 @@ function createChunks(text: string, maxChunks: number = 25): DocumentChunk[] {
   
   if (lastIndex < text.length) {
     const content = text.substring(lastIndex).trim();
-    if (content.length > 50) {
+    if (content.length > 100) {
       pages.push({ pageNumber: currentPageNum, content });
     }
   }
   
-  if (pages.length === 0 && text.length > 50) {
-    pages.push({ pageNumber: 1, content: text });
+  if (pages.length === 0 && text.length > 100) {
+    const lines = text.split("\n");
+    const linesPerPage = Math.ceil(lines.length / 10);
+    for (let i = 0; i < 10 && i * linesPerPage < lines.length; i++) {
+      const pageContent = lines.slice(i * linesPerPage, (i + 1) * linesPerPage).join("\n");
+      if (pageContent.trim().length > 100) {
+        pages.push({ pageNumber: i + 1, content: pageContent });
+      }
+    }
   }
+
+  log("Pages identified", { count: pages.length });
 
   for (const page of pages) {
     if (chunks.length >= maxChunks) break;
     
     const pageText = page.content;
     let pageChunks = 0;
+    const maxChunksPerPage = 3;
     
-    for (let i = 0; i < pageText.length && pageChunks < 2 && chunks.length < maxChunks; i += chunkSize - overlap) {
+    for (let i = 0; i < pageText.length && pageChunks < maxChunksPerPage && chunks.length < maxChunks; i += chunkSize - overlap) {
       const chunk = pageText.substring(i, i + chunkSize).trim();
-      if (chunk.length > 50) {
-        const isTable = chunk.includes("|") && chunk.includes("---");
+      if (chunk.length > 100) {
+        const isTable = chunk.includes("|") && (chunk.includes("---") || chunk.match(/\|\s*\d/));
         
         chunks.push({
           content: chunk,
@@ -296,6 +234,7 @@ function createChunks(text: string, maxChunks: number = 25): DocumentChunk[] {
     }
   }
 
+  log("Chunks created", { count: chunks.length });
   return chunks;
 }
 
@@ -334,25 +273,23 @@ export async function processDocument(
       break;
 
     case "pdf":
-      onProgress?.("Extracting PDF text...");
-      const pdfResult = extractTextFromPDFNative(buffer);
-      pageCount = pdfResult.pages;
+      const estimatedPages = estimatePageCount(buffer);
+      log("PDF estimated pages", { estimatedPages });
       
-      if (pdfResult.hasText) {
-        fullText = pdfResult.text;
-        processingMethod = "text_extraction";
-        log("PDF has text - no OCR needed", { pages: pageCount, textLength: fullText.length });
-        onProgress?.(`Extracted text from ${pageCount} pages`);
-      } else {
-        onProgress?.("Scanned PDF - running OCR...");
-        requiresOCR = true;
-        processingMethod = "ocr";
-        
-        const ocrResult = await ocrWithVisionFast(buffer, "application/pdf", filename, onProgress);
-        fullText = ocrResult.text;
-        pageCount = ocrResult.pages;
-        language = ocrResult.language;
-      }
+      requiresOCR = true;
+      processingMethod = "ocr";
+      
+      const pdfResult = await extractWithGemini(
+        buffer, 
+        "application/pdf", 
+        filename, 
+        estimatedPages,
+        onProgress
+      );
+      
+      fullText = pdfResult.text;
+      pageCount = pdfResult.pages;
+      language = pdfResult.language;
       break;
 
     case "image":
@@ -362,7 +299,7 @@ export async function processDocument(
       const mimeType = filename.toLowerCase().endsWith(".png") ? "image/png" :
         filename.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
       
-      const imgResult = await ocrWithVisionFast(buffer, mimeType, filename, onProgress);
+      const imgResult = await extractWithGemini(buffer, mimeType, filename, 1, onProgress);
       fullText = imgResult.text;
       pageCount = imgResult.pages;
       language = imgResult.language;
@@ -372,7 +309,7 @@ export async function processDocument(
       fullText = extractTextFromPlainText(buffer);
   }
 
-  onProgress?.("Creating index...");
+  onProgress?.("Creating search index...");
   const chunks = createChunks(fullText);
 
   log("Complete", { 
@@ -380,7 +317,7 @@ export async function processDocument(
     duration: Date.now() - startTime,
     pages: pageCount,
     chunks: chunks.length,
-    method: processingMethod
+    textLength: fullText.length
   });
 
   return {
