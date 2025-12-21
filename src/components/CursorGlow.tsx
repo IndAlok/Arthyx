@@ -11,7 +11,7 @@ export default function CursorGlow() {
   const cursorX = useMotionValue(-100);
   const cursorY = useMotionValue(-100);
 
-  const springConfig = { damping: 20, stiffness: 300 };
+  const springConfig = { damping: 25, stiffness: 400 };
   const cursorXSpring = useSpring(cursorX, springConfig);
   const cursorYSpring = useSpring(cursorY, springConfig);
 
@@ -33,10 +33,12 @@ export default function CursorGlow() {
         target.tagName === "BUTTON" ||
         target.tagName === "A" ||
         target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
         target.closest("button") ||
         target.closest("a") ||
         target.closest("[role='button']") ||
-        target.closest("input")
+        target.closest("input") ||
+        target.closest("textarea")
       ) {
         setIsHovering(true);
       } else {
@@ -46,11 +48,6 @@ export default function CursorGlow() {
 
     const handleMouseLeave = () => {
       setIsVisible(false);
-      document.body.style.cursor = "auto";
-    };
-
-    const handleMouseEnter = () => {
-      document.body.style.cursor = "none";
     };
 
     window.addEventListener("mousemove", moveCursor);
@@ -58,7 +55,6 @@ export default function CursorGlow() {
     window.addEventListener("mouseup", handleMouseUp);
     window.addEventListener("mouseover", handleMouseOver);
     document.body.addEventListener("mouseleave", handleMouseLeave);
-    document.body.addEventListener("mouseenter", handleMouseEnter);
 
     return () => {
       document.body.style.cursor = "auto";
@@ -67,7 +63,6 @@ export default function CursorGlow() {
       window.removeEventListener("mouseup", handleMouseUp);
       window.removeEventListener("mouseover", handleMouseOver);
       document.body.removeEventListener("mouseleave", handleMouseLeave);
-      document.body.removeEventListener("mouseenter", handleMouseEnter);
     };
   }, [cursorX, cursorY]);
 
@@ -78,65 +73,61 @@ export default function CursorGlow() {
         style={{
           x: cursorXSpring,
           y: cursorYSpring,
-          translateX: "-50%",
-          translateY: "-50%",
         }}
         animate={{
-          scale: isClicking ? 0.6 : isHovering ? 1.2 : 1,
+          scale: isClicking ? 0.8 : isHovering ? 1.3 : 1,
           opacity: isVisible ? 1 : 0,
         }}
         transition={{ duration: 0.1 }}
       >
-        <div className="relative">
-          <div
-            className={`transition-all duration-150 ${
-              isHovering
-                ? "w-10 h-10"
-                : isClicking
-                ? "w-4 h-4"
-                : "w-5 h-5"
-            }`}
-            style={{
-              background: isHovering 
-                ? "radial-gradient(circle, rgba(16, 185, 129, 0.8) 0%, rgba(20, 184, 166, 0.4) 50%, transparent 70%)"
-                : "radial-gradient(circle, #10b981 0%, #14b8a6 50%, transparent 70%)",
-              borderRadius: isHovering ? "50%" : "0%",
-              transform: isHovering ? "rotate(0deg)" : "rotate(45deg)",
-            }}
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 28 28"
+          fill="none"
+          style={{
+            marginLeft: "-2px",
+            marginTop: "-2px",
+            filter: isHovering ? "drop-shadow(0 0 8px rgba(16, 185, 129, 0.6))" : "drop-shadow(0 2px 4px rgba(0,0,0,0.3))",
+          }}
+        >
+          <path
+            d="M4 4L12 24L15 15L24 12L4 4Z"
+            fill={isHovering ? "#10b981" : "white"}
+            stroke={isHovering ? "#059669" : "#1e293b"}
+            strokeWidth="1.5"
+            strokeLinejoin="round"
           />
-          
-          {!isHovering && (
-            <motion.div
-              className="absolute top-1/2 left-1/2 w-1 h-1 bg-white rounded-full"
-              style={{
-                transform: "translate(-50%, -50%)",
-              }}
-              animate={{
-                scale: isClicking ? 2 : 1,
-              }}
-            />
-          )}
-        </div>
+          <path
+            d="M14.5 14.5L22 22"
+            stroke={isHovering ? "#10b981" : "#1e293b"}
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
       </motion.div>
 
       <motion.div
-        className="fixed pointer-events-none z-[9998]"
+        className="fixed pointer-events-none z-[9998] rounded-full"
         style={{
           x: cursorXSpring,
           y: cursorYSpring,
           translateX: "-50%",
           translateY: "-50%",
+          marginLeft: "10px",
+          marginTop: "10px",
         }}
         animate={{
-          scale: isClicking ? 1.8 : 1,
-          opacity: isVisible ? 0.3 : 0,
+          width: isClicking ? 40 : isHovering ? 50 : 30,
+          height: isClicking ? 40 : isHovering ? 50 : 30,
+          opacity: isVisible ? (isHovering ? 0.4 : 0.2) : 0,
         }}
         transition={{ duration: 0.2 }}
       >
         <div 
-          className="w-32 h-32 rounded-full blur-2xl"
+          className="w-full h-full rounded-full"
           style={{
-            background: "radial-gradient(circle, rgba(16, 185, 129, 0.3) 0%, rgba(20, 184, 166, 0.1) 50%, transparent 70%)",
+            background: "radial-gradient(circle, rgba(16, 185, 129, 0.4) 0%, transparent 70%)",
           }}
         />
       </motion.div>
