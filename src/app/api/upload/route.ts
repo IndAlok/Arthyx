@@ -178,8 +178,7 @@ export async function POST(request: NextRequest) {
                   filename,
                   pageCount: pagesProcessed || 1,
                   language: "English",
-                  processingMethod: "sampled",
-                  pagesProcessed: pagesProcessed || 1
+                  processingMethod: "hybrid"
                 }
               };
             } else {

@@ -13,8 +13,7 @@ export interface ProcessedDocument {
     filename: string;
     pageCount: number;
     language?: string;
-    processingMethod: "text_extraction" | "ocr" | "hybrid" | "sampled";
-    pagesProcessed?: number;
+    processingMethod: "text_extraction" | "ocr" | "hybrid";
   };
 }
 
@@ -28,9 +27,6 @@ export interface DocumentChunk {
 const log = (step: string, data?: object) => {
   console.log(`[DOC-PROCESSOR] ${step}`, data ? JSON.stringify(data) : "");
 };
-
-const MAX_PAGES_TO_PROCESS = 60;
-const MAX_PROCESSING_TIME_MS = 45000;
 
 function detectDocumentType(filename: string): DocumentType {
   const ext = filename.toLowerCase().split(".").pop() || "";
@@ -50,10 +46,8 @@ function detectDocumentType(filename: string): DocumentType {
 }
 
 async function extractTextFromWord(buffer: Buffer): Promise<string> {
-  log("Extracting text from Word document");
   try {
     const result = await mammoth.extractRawText({ buffer });
-    log("Word extraction complete", { length: result.value.length });
     return result.value;
   } catch (error) {
     log("Word extraction error", { error: String(error) });
@@ -62,7 +56,6 @@ async function extractTextFromWord(buffer: Buffer): Promise<string> {
 }
 
 function extractTextFromExcel(buffer: Buffer): { text: string; sheets: number } {
-  log("Extracting text from Excel document");
   try {
     const workbook = XLSX.read(buffer, { type: "buffer" });
     let fullText = "";
@@ -83,7 +76,6 @@ function extractTextFromExcel(buffer: Buffer): { text: string; sheets: number } 
       }
     }
 
-    log("Excel extraction complete", { length: fullText.length, sheets: workbook.SheetNames.length });
     return { text: fullText, sheets: workbook.SheetNames.length };
   } catch (error) {
     log("Excel extraction error", { error: String(error) });
@@ -92,130 +84,166 @@ function extractTextFromExcel(buffer: Buffer): { text: string; sheets: number } 
 }
 
 function extractTextFromPlainText(buffer: Buffer): string {
-  const text = buffer.toString("utf-8");
-  log("Plain text extraction complete", { length: text.length });
-  return text;
+  return buffer.toString("utf-8");
 }
 
-function estimatePDFPageCount(buffer: Buffer): number {
-  const pdfString = buffer.toString("binary");
-  const matches = pdfString.match(/\/Type\s*\/Page[^s]/g);
-  return matches ? matches.length : 1;
+function extractTextFromPDFNative(buffer: Buffer): { text: string; pages: number; hasText: boolean } {
+  log("Extracting text from PDF natively");
+  const startTime = Date.now();
+  
+  try {
+    const pdfString = buffer.toString("binary");
+    
+    const pageMatches = pdfString.match(/\/Type\s*\/Page[^s]/g);
+    const pageCount = pageMatches ? pageMatches.length : 1;
+    
+    let extractedText = "";
+    
+    const streamPattern = /stream\s*([\s\S]*?)endstream/gi;
+    let match;
+    
+    while ((match = streamPattern.exec(pdfString)) !== null) {
+      const streamContent = match[1];
+      
+      const textMatches = streamContent.match(/\(([^)]+)\)/g);
+      if (textMatches) {
+        for (const textMatch of textMatches) {
+          let text = textMatch.slice(1, -1);
+          
+          text = text
+            .replace(/\\n/g, "\n")
+            .replace(/\\r/g, "")
+            .replace(/\\t/g, " ")
+            .replace(/\\\(/g, "(")
+            .replace(/\\\)/g, ")")
+            .replace(/\\\\/g, "\\");
+          
+          if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
+            extractedText += text + " ";
+          }
+        }
+      }
+      
+      const tjMatches = streamContent.match(/\[(.*?)\]\s*TJ/g);
+      if (tjMatches) {
+        for (const tjMatch of tjMatches) {
+          const innerTexts = tjMatch.match(/\(([^)]*)\)/g);
+          if (innerTexts) {
+            for (const innerText of innerTexts) {
+              let text = innerText.slice(1, -1);
+              text = text.replace(/\\n/g, "\n").replace(/\\r/g, "");
+              if (text.length > 0) {
+                extractedText += text;
+              }
+            }
+          }
+        }
+        extractedText += " ";
+      }
+    }
+    
+    extractedText = extractedText
+      .replace(/\s+/g, " ")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .trim();
+    
+    const hasSubstantialText = extractedText.length > 300;
+    
+    let formattedText = "";
+    if (hasSubstantialText && pageCount > 1) {
+      const charsPerPage = Math.ceil(extractedText.length / pageCount);
+      for (let i = 0; i < pageCount; i++) {
+        const start = i * charsPerPage;
+        const end = Math.min((i + 1) * charsPerPage, extractedText.length);
+        const pageText = extractedText.substring(start, end).trim();
+        if (pageText.length > 20) {
+          formattedText += `=== PAGE ${i + 1} ===\n${pageText}\n\n`;
+        }
+      }
+    } else {
+      formattedText = extractedText;
+    }
+    
+    log("PDF native extraction complete", { 
+      pages: pageCount,
+      textLength: extractedText.length,
+      hasText: hasSubstantialText,
+      duration: Date.now() - startTime
+    });
+    
+    return { 
+      text: formattedText || extractedText, 
+      pages: pageCount,
+      hasText: hasSubstantialText
+    };
+  } catch (error) {
+    log("PDF native extraction error", { error: String(error) });
+    return { text: "", pages: 1, hasText: false };
+  }
 }
 
-function extractNativePDFText(buffer: Buffer): string {
-  const pdfString = buffer.toString("binary");
-  const textMatches = pdfString.match(/\(([^)]+)\)/g);
-  
-  if (!textMatches) return "";
-  
-  let text = textMatches
-    .map(m => m.slice(1, -1))
-    .filter(t => t.length > 2 && /[a-zA-Z0-9]/.test(t))
-    .join(" ");
-  
-  text = text.replace(/\\n/g, "\n").replace(/\\r/g, "");
-  
-  return text;
-}
-
-async function analyzeDocumentWithVisionFast(
+async function ocrWithVisionFast(
   buffer: Buffer,
   mimeType: string,
   filename: string,
-  estimatedPages: number,
   onProgress?: (step: string) => void
-): Promise<{ text: string; pageCount: number; language: string; pagesProcessed: number }> {
-  const startTime = Date.now();
-  const pagesToProcess = Math.min(estimatedPages, MAX_PAGES_TO_PROCESS);
-  
-  log("Starting fast Vision analysis", { filename, estimatedPages, pagesToProcess });
+): Promise<{ text: string; pages: number; language: string }> {
+  log("Running fast OCR with Gemini Vision", { filename });
   
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-  const base64Data = buffer.toString("base64");
+  const maxSize = 4 * 1024 * 1024;
+  const useBuffer = buffer.length > maxSize ? buffer.subarray(0, maxSize) : buffer;
   
-  const isLargeDoc = estimatedPages > 50;
-  
-  const prompt = isLargeDoc ? 
-    `Analyze this large document QUICKLY. Focus on KEY CONTENT ONLY.
+  const base64Data = useBuffer.toString("base64");
 
-INSTRUCTIONS:
-1. Report total pages: [TOTAL_PAGES: X]
-2. Extract ONLY the most important content from first ${pagesToProcess} pages:
-   - Executive summaries, key findings
-   - Important financial figures and ratios
-   - Regulatory mentions (SEBI, RBI)
-   - Major conclusions
-3. Use format: === PAGE X === for each processed page
-4. Skip repetitive content, headers/footers, boilerplate
-5. Detect language: [LANGUAGE: X]
+  const prompt = `Extract text from this document QUICKLY. Focus on key content only.
 
-BE FAST - extract essence, not verbatim text.` :
-    `Analyze this document precisely.
+Report: [PAGES: X] [LANGUAGE: X]
 
-1. Count pages: [TOTAL_PAGES: X]
-2. For each page: === PAGE X ===
-3. Extract all text with financial precision
-4. Preserve tables as markdown
-5. Detect language: [LANGUAGE: X]`;
+Extract:
+- Headlines and summaries
+- Key financial figures
+- Company names
+- Important dates
+
+Format concisely. Skip decorative content.`;
 
   try {
-    onProgress?.(`Processing ${pagesToProcess}/${estimatedPages} pages...`);
+    onProgress?.("Running OCR...");
     
     const result = await model.generateContent([
       prompt,
-      {
-        inlineData: {
-          mimeType,
-          data: base64Data,
-        },
-      },
+      { inlineData: { mimeType, data: base64Data } },
     ]);
-
-    if (Date.now() - startTime > MAX_PROCESSING_TIME_MS) {
-      log("Approaching timeout, returning partial results");
-    }
 
     const response = result.response.text();
     
-    const pageCountMatch = response.match(/\[TOTAL_PAGES:\s*(\d+)\]/);
-    const pageCount = pageCountMatch ? parseInt(pageCountMatch[1], 10) : estimatedPages;
+    const pagesMatch = response.match(/\[PAGES:\s*(\d+)\]/);
+    const pages = pagesMatch ? parseInt(pagesMatch[1], 10) : 1;
     
     const languageMatch = response.match(/\[LANGUAGE:\s*([^\]]+)\]/);
     const language = languageMatch ? languageMatch[1].trim() : "English";
     
     const text = response
-      .replace(/\[TOTAL_PAGES:\s*\d+\]/g, "")
+      .replace(/\[PAGES:\s*\d+\]/g, "")
       .replace(/\[LANGUAGE:\s*[^\]]+\]/g, "")
       .trim();
 
-    log("Fast Vision complete", { 
-      duration: Date.now() - startTime,
-      textLength: text.length,
-      pageCount,
-      pagesProcessed: pagesToProcess
-    });
-
-    onProgress?.(`Extracted ${pagesToProcess} key pages`);
+    log("OCR complete", { pages, textLength: text.length });
     
-    return { text, pageCount, language, pagesProcessed: pagesToProcess };
+    return { text, pages, language };
   } catch (error) {
-    log("Vision analysis error", { error: String(error) });
+    log("OCR error", { error: String(error) });
     throw error;
   }
 }
 
-function createSmartChunks(
-  text: string, 
-  pageCount: number, 
-  maxChunksPerPage: number = 3,
-  maxTotalChunks: number = 25
-): DocumentChunk[] {
-  log("Creating smart chunks", { textLength: text.length, pageCount });
-  
+function createChunks(text: string, maxChunks: number = 25): DocumentChunk[] {
   const chunks: DocumentChunk[] = [];
+  const chunkSize = 800;
+  const overlap = 100;
   
   const pagePattern = /===\s*PAGE\s*(\d+)\s*===/gi;
   const pages: Array<{ pageNumber: number; content: string }> = [];
@@ -246,34 +274,28 @@ function createSmartChunks(
     pages.push({ pageNumber: 1, content: text });
   }
 
-  const chunkSize = 800;
-  const overlap = 100;
-  
   for (const page of pages) {
-    if (chunks.length >= maxTotalChunks) break;
+    if (chunks.length >= maxChunks) break;
     
     const pageText = page.content;
     let pageChunks = 0;
     
-    for (let i = 0; i < pageText.length && pageChunks < maxChunksPerPage && chunks.length < maxTotalChunks; i += chunkSize - overlap) {
+    for (let i = 0; i < pageText.length && pageChunks < 2 && chunks.length < maxChunks; i += chunkSize - overlap) {
       const chunk = pageText.substring(i, i + chunkSize).trim();
       if (chunk.length > 50) {
         const isTable = chunk.includes("|") && chunk.includes("---");
-        const isHeader = /^#+\s/.test(chunk) || /^[A-Z][A-Z\s]+$/.test(chunk.split("\n")[0]);
         
         chunks.push({
           content: chunk,
           pageNumber: page.pageNumber,
           chunkIndex: chunks.length,
-          type: isTable ? "table" : isHeader ? "header" : "text",
+          type: isTable ? "table" : "text",
         });
         pageChunks++;
       }
     }
   }
 
-  log("Chunks created", { totalChunks: chunks.length });
-  
   return chunks;
 }
 
@@ -284,16 +306,15 @@ export async function processDocument(
 ): Promise<ProcessedDocument> {
   const startTime = Date.now();
   const documentType = detectDocumentType(filename);
-  log("Processing document", { filename, documentType, size: buffer.length });
+  log("Processing", { filename, documentType, size: buffer.length });
   
-  onProgress?.(`Analyzing ${documentType} document...`);
+  onProgress?.(`Processing ${documentType}...`);
 
   let fullText = "";
   let requiresOCR = false;
   let pageCount = 1;
   let language = "English";
-  let processingMethod: "text_extraction" | "ocr" | "hybrid" | "sampled" = "text_extraction";
-  let pagesProcessed = 1;
+  let processingMethod: "text_extraction" | "ocr" | "hybrid" = "text_extraction";
 
   switch (documentType) {
     case "text":
@@ -313,49 +334,24 @@ export async function processDocument(
       break;
 
     case "pdf":
-      const estimatedPages = estimatePDFPageCount(buffer);
-      log("PDF page estimate", { estimatedPages });
+      onProgress?.("Extracting PDF text...");
+      const pdfResult = extractTextFromPDFNative(buffer);
+      pageCount = pdfResult.pages;
       
-      const nativeText = extractNativePDFText(buffer);
-      const hasNativeText = nativeText.length > 500;
-      
-      if (hasNativeText && estimatedPages > 100) {
-        log("Large text PDF - using native extraction + sampling");
-        processingMethod = "sampled";
-        pageCount = estimatedPages;
-        pagesProcessed = Math.min(estimatedPages, MAX_PAGES_TO_PROCESS);
-        
-        onProgress?.(`Large document (${estimatedPages} pages) - extracting key content...`);
-        
-        const result = await analyzeDocumentWithVisionFast(
-          buffer, 
-          "application/pdf", 
-          filename, 
-          estimatedPages,
-          onProgress
-        );
-        
-        fullText = result.text;
-        language = result.language;
-        pagesProcessed = result.pagesProcessed;
-        requiresOCR = true;
+      if (pdfResult.hasText) {
+        fullText = pdfResult.text;
+        processingMethod = "text_extraction";
+        log("PDF has text - no OCR needed", { pages: pageCount, textLength: fullText.length });
+        onProgress?.(`Extracted text from ${pageCount} pages`);
       } else {
+        onProgress?.("Scanned PDF - running OCR...");
         requiresOCR = true;
         processingMethod = "ocr";
-        onProgress?.(`Analyzing ${estimatedPages} page(s)...`);
         
-        const result = await analyzeDocumentWithVisionFast(
-          buffer, 
-          "application/pdf", 
-          filename, 
-          estimatedPages,
-          onProgress
-        );
-        
-        fullText = result.text;
-        pageCount = result.pageCount;
-        language = result.language;
-        pagesProcessed = result.pagesProcessed;
+        const ocrResult = await ocrWithVisionFast(buffer, "application/pdf", filename, onProgress);
+        fullText = ocrResult.text;
+        pageCount = ocrResult.pages;
+        language = ocrResult.language;
       }
       break;
 
@@ -366,9 +362,9 @@ export async function processDocument(
       const mimeType = filename.toLowerCase().endsWith(".png") ? "image/png" :
         filename.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
       
-      const imgResult = await analyzeDocumentWithVisionFast(buffer, mimeType, filename, 1, onProgress);
+      const imgResult = await ocrWithVisionFast(buffer, mimeType, filename, onProgress);
       fullText = imgResult.text;
-      pageCount = imgResult.pageCount;
+      pageCount = imgResult.pages;
       language = imgResult.language;
       break;
 
@@ -376,18 +372,15 @@ export async function processDocument(
       fullText = extractTextFromPlainText(buffer);
   }
 
-  const processingTime = Date.now() - startTime;
-  log("Text extraction complete", { processingTime, textLength: fullText.length });
-  
-  onProgress?.("Creating search index...");
-  const chunks = createSmartChunks(fullText, pageCount);
+  onProgress?.("Creating index...");
+  const chunks = createChunks(fullText);
 
-  log("Document complete", { 
+  log("Complete", { 
     filename, 
-    processingTime,
-    pageCount,
-    pagesProcessed,
-    chunkCount: chunks.length
+    duration: Date.now() - startTime,
+    pages: pageCount,
+    chunks: chunks.length,
+    method: processingMethod
   });
 
   return {
@@ -399,8 +392,7 @@ export async function processDocument(
       filename, 
       pageCount,
       language,
-      processingMethod,
-      pagesProcessed
+      processingMethod
     },
   };
 }
