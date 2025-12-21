@@ -20,8 +20,8 @@ interface UploadedFile {
 }
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const CHUNK_SIZE = 4 * 1024 * 1024;
-const MAX_PARALLEL_CHUNKS = 10;
+const CHUNK_SIZE = 1.5 * 1024 * 1024;
+const MAX_PARALLEL_CHUNKS = 12;
 
 const SUPPORTED_FORMATS = [
   { ext: "pdf", label: "PDF", color: "text-red-400" },
