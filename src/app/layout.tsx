@@ -30,10 +30,10 @@ export const metadata: Metadata = {
   authors: [{ name: "Arthyx" }],
   icons: {
     icon: [
-      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
       { url: "/logo.png", type: "image/png" },
     ],
-    shortcut: "/logo.png",
+    shortcut: "/favicon.svg",
     apple: "/logo.png",
   },
   openGraph: {
@@ -58,8 +58,8 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <head>
-        <link rel="icon" href="/logo.png" type="image/png" />
-        <link rel="shortcut icon" href="/logo.png" type="image/png" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="alternate icon" href="/logo.png" type="image/png" />
         <link rel="apple-touch-icon" href="/logo.png" />
       </head>
       <body

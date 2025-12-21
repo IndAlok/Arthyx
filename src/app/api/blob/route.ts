@@ -1,32 +1,42 @@
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
 
-export const maxDuration = 60;
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const body = (await request.json()) as HandleUploadBody;
 
-export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File;
-
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
-    }
-
-    const blob = await put(file.name, file, {
-      access: "public",
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      onBeforeGenerateToken: async () => {
+        return {
+          allowedContentTypes: [
+            "application/pdf",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/tiff",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/csv",
+            "text/plain",
+            "text/markdown",
+          ],
+          maximumSizeInBytes: 50 * 1024 * 1024,
+        };
+      },
+      onUploadCompleted: async ({ blob }) => {
+        console.log("[BLOB] Upload completed:", blob.url);
+      },
     });
 
-    return NextResponse.json({
-      success: true,
-      url: blob.url,
-      filename: file.name,
-      size: file.size,
-    });
+    return NextResponse.json(jsonResponse);
   } catch (error) {
-    console.error("[BLOB] Upload error:", error);
     return NextResponse.json(
-      { error: "Failed to upload file", details: String(error) },
-      { status: 500 }
+      { error: (error as Error).message },
+      { status: 400 }
     );
   }
 }

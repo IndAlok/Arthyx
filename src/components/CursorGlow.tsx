@@ -3,11 +3,6 @@
 import { useEffect, useState } from "react";
 import { motion, useMotionValue, useSpring } from "framer-motion";
 
-interface MousePosition {
-  x: number;
-  y: number;
-}
-
 export default function CursorGlow() {
   const [isVisible, setIsVisible] = useState(false);
   const [isClicking, setIsClicking] = useState(false);
@@ -16,11 +11,13 @@ export default function CursorGlow() {
   const cursorX = useMotionValue(-100);
   const cursorY = useMotionValue(-100);
 
-  const springConfig = { damping: 25, stiffness: 200 };
+  const springConfig = { damping: 20, stiffness: 300 };
   const cursorXSpring = useSpring(cursorX, springConfig);
   const cursorYSpring = useSpring(cursorY, springConfig);
 
   useEffect(() => {
+    document.body.style.cursor = "none";
+
     const moveCursor = (e: MouseEvent) => {
       cursorX.set(e.clientX);
       cursorY.set(e.clientY);
@@ -38,7 +35,8 @@ export default function CursorGlow() {
         target.tagName === "INPUT" ||
         target.closest("button") ||
         target.closest("a") ||
-        target.closest("[role='button']")
+        target.closest("[role='button']") ||
+        target.closest("input")
       ) {
         setIsHovering(true);
       } else {
@@ -46,27 +44,37 @@ export default function CursorGlow() {
       }
     };
 
-    const handleMouseLeave = () => setIsVisible(false);
+    const handleMouseLeave = () => {
+      setIsVisible(false);
+      document.body.style.cursor = "auto";
+    };
+
+    const handleMouseEnter = () => {
+      document.body.style.cursor = "none";
+    };
 
     window.addEventListener("mousemove", moveCursor);
     window.addEventListener("mousedown", handleMouseDown);
     window.addEventListener("mouseup", handleMouseUp);
     window.addEventListener("mouseover", handleMouseOver);
     document.body.addEventListener("mouseleave", handleMouseLeave);
+    document.body.addEventListener("mouseenter", handleMouseEnter);
 
     return () => {
+      document.body.style.cursor = "auto";
       window.removeEventListener("mousemove", moveCursor);
       window.removeEventListener("mousedown", handleMouseDown);
       window.removeEventListener("mouseup", handleMouseUp);
       window.removeEventListener("mouseover", handleMouseOver);
       document.body.removeEventListener("mouseleave", handleMouseLeave);
+      document.body.removeEventListener("mouseenter", handleMouseEnter);
     };
   }, [cursorX, cursorY]);
 
   return (
     <>
       <motion.div
-        className="fixed pointer-events-none z-[9999] mix-blend-screen"
+        className="fixed pointer-events-none z-[9999]"
         style={{
           x: cursorXSpring,
           y: cursorYSpring,
@@ -74,20 +82,41 @@ export default function CursorGlow() {
           translateY: "-50%",
         }}
         animate={{
-          scale: isClicking ? 0.8 : isHovering ? 1.5 : 1,
+          scale: isClicking ? 0.6 : isHovering ? 1.2 : 1,
           opacity: isVisible ? 1 : 0,
         }}
-        transition={{ duration: 0.15 }}
+        transition={{ duration: 0.1 }}
       >
-        <div
-          className={`rounded-full transition-all duration-200 ${
-            isHovering
-              ? "w-12 h-12 bg-emerald-400/30 border-2 border-emerald-400/50"
-              : isClicking
-              ? "w-6 h-6 bg-emerald-500/50"
-              : "w-8 h-8 bg-emerald-400/20 border border-emerald-400/30"
-          }`}
-        />
+        <div className="relative">
+          <div
+            className={`transition-all duration-150 ${
+              isHovering
+                ? "w-10 h-10"
+                : isClicking
+                ? "w-4 h-4"
+                : "w-5 h-5"
+            }`}
+            style={{
+              background: isHovering 
+                ? "radial-gradient(circle, rgba(16, 185, 129, 0.8) 0%, rgba(20, 184, 166, 0.4) 50%, transparent 70%)"
+                : "radial-gradient(circle, #10b981 0%, #14b8a6 50%, transparent 70%)",
+              borderRadius: isHovering ? "50%" : "0%",
+              transform: isHovering ? "rotate(0deg)" : "rotate(45deg)",
+            }}
+          />
+          
+          {!isHovering && (
+            <motion.div
+              className="absolute top-1/2 left-1/2 w-1 h-1 bg-white rounded-full"
+              style={{
+                transform: "translate(-50%, -50%)",
+              }}
+              animate={{
+                scale: isClicking ? 2 : 1,
+              }}
+            />
+          )}
+        </div>
       </motion.div>
 
       <motion.div
@@ -99,12 +128,17 @@ export default function CursorGlow() {
           translateY: "-50%",
         }}
         animate={{
-          scale: isClicking ? 1.5 : 1,
-          opacity: isVisible ? 0.5 : 0,
+          scale: isClicking ? 1.8 : 1,
+          opacity: isVisible ? 0.3 : 0,
         }}
-        transition={{ duration: 0.3 }}
+        transition={{ duration: 0.2 }}
       >
-        <div className="w-40 h-40 rounded-full bg-gradient-radial from-emerald-500/20 via-teal-500/10 to-transparent blur-2xl" />
+        <div 
+          className="w-32 h-32 rounded-full blur-2xl"
+          style={{
+            background: "radial-gradient(circle, rgba(16, 185, 129, 0.3) 0%, rgba(20, 184, 166, 0.1) 50%, transparent 70%)",
+          }}
+        />
       </motion.div>
     </>
   );

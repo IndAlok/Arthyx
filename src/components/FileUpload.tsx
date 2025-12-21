@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2, X, File } from "lucide-react";
+import { upload } from "@vercel/blob/client";
 import { cn } from "@/lib/utils";
 
 interface FileUploadProps {
@@ -17,6 +18,7 @@ interface UploadedFile {
   message?: string;
   pages?: number;
   documentType?: string;
+  blobUrl?: string;
 }
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -37,6 +39,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
   const [overallProgress, setOverallProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const processingRef = useRef(false);
 
   const validateFile = (file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
@@ -50,54 +53,23 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     return null;
   };
 
-  const addFiles = (newFiles: FileList | File[]) => {
-    const fileArray = Array.from(newFiles);
-    setFiles((prev) => {
-      const updated = new Map(prev);
-      fileArray.forEach((file) => {
-        const error = validateFile(file);
-        updated.set(file.name, {
-          file,
-          status: error ? "error" : "pending",
-          progress: 0,
-          message: error || undefined,
-        });
-      });
-      return updated;
+  const uploadToBlob = async (file: File): Promise<string> => {
+    const blob = await upload(file.name, file, {
+      access: "public",
+      handleUploadUrl: "/api/blob",
     });
+    return blob.url;
   };
 
-  const removeFile = (filename: string) => {
-    setFiles((prev) => {
-      const updated = new Map(prev);
-      updated.delete(filename);
-      return updated;
-    });
-  };
-
-  const uploadToBlob = async (file: File): Promise<{ url: string; filename: string }> => {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const response = await fetch("/api/blob", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Blob upload failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return { url: data.url, filename: file.name };
-  };
-
-  const processFiles = async () => {
-    const pendingFiles = Array.from(files.values()).filter((f) => f.status === "pending");
+  const processFiles = useCallback(async (filesToProcess: Map<string, UploadedFile>) => {
+    if (processingRef.current) return;
+    
+    const pendingFiles = Array.from(filesToProcess.values()).filter((f) => f.status === "pending");
     if (pendingFiles.length === 0) return;
 
+    processingRef.current = true;
     setIsProcessing(true);
-    setStatusMessage("Uploading files to storage...");
+    setStatusMessage("Uploading files...");
     setOverallProgress(5);
 
     try {
@@ -114,8 +86,8 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
         });
 
         try {
-          const blobResult = await uploadToBlob(uploadedFile.file);
-          blobUrls.push(blobResult);
+          const blobUrl = await uploadToBlob(uploadedFile.file);
+          blobUrls.push({ url: blobUrl, filename: uploadedFile.file.name });
           
           setFiles((prev) => {
             const updated = new Map(prev);
@@ -123,7 +95,8 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
               ...uploadedFile, 
               status: "processing", 
               progress: 40,
-              message: "Uploaded, waiting for processing..." 
+              blobUrl,
+              message: "Processing with AI..." 
             });
             return updated;
           });
@@ -139,16 +112,17 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
           });
         }
 
-        setOverallProgress(10 + ((i + 1) / pendingFiles.length) * 20);
+        setOverallProgress(10 + ((i + 1) / pendingFiles.length) * 25);
       }
 
       if (blobUrls.length === 0) {
+        processingRef.current = false;
         setIsProcessing(false);
         return;
       }
 
-      setStatusMessage("Processing documents with AI...");
-      setOverallProgress(35);
+      setStatusMessage("Analyzing documents...");
+      setOverallProgress(40);
 
       const response = await fetch("/api/upload", {
         method: "POST",
@@ -201,7 +175,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
                       progress: 100,
                       pages: data.pages,
                       documentType: data.documentType,
-                      message: `${data.pages} page(s), ${data.chunks} chunks`,
+                      message: `${data.pages} page(s)`,
                     });
                   }
                   return updated;
@@ -224,7 +198,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
                 break;
 
               case "complete":
-                setStatusMessage("Processing complete!");
+                setStatusMessage("Complete!");
                 setOverallProgress(100);
                 if (newSessionId) {
                   onUploadComplete(newSessionId, completedFiles);
@@ -243,8 +217,45 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     } catch (error) {
       setStatusMessage(`Error: ${String(error)}`);
     } finally {
+      processingRef.current = false;
       setIsProcessing(false);
     }
+  }, [sessionId, onUploadComplete, overallProgress]);
+
+  const addFiles = useCallback((newFiles: FileList | File[]) => {
+    const fileArray = Array.from(newFiles);
+    
+    setFiles((prev) => {
+      const updated = new Map(prev);
+      fileArray.forEach((file) => {
+        const error = validateFile(file);
+        updated.set(file.name, {
+          file,
+          status: error ? "error" : "pending",
+          progress: 0,
+          message: error || undefined,
+        });
+      });
+      return updated;
+    });
+  }, []);
+
+  useEffect(() => {
+    const pendingFiles = Array.from(files.values()).filter(f => f.status === "pending");
+    if (pendingFiles.length > 0 && !processingRef.current) {
+      const timer = setTimeout(() => {
+        processFiles(files);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [files, processFiles]);
+
+  const removeFile = (filename: string) => {
+    setFiles((prev) => {
+      const updated = new Map(prev);
+      updated.delete(filename);
+      return updated;
+    });
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -253,7 +264,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     if (e.dataTransfer.files) {
       addFiles(e.dataTransfer.files);
     }
-  }, []);
+  }, [addFiles]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -264,8 +275,6 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     e.preventDefault();
     setIsDragging(false);
   }, []);
-
-  const pendingCount = Array.from(files.values()).filter((f) => f.status === "pending").length;
 
   return (
     <div className="space-y-4">
@@ -292,7 +301,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
 
         <Upload className={cn("w-10 h-10 mx-auto mb-3", isDragging ? "text-emerald-400" : "text-slate-500")} />
         <p className="text-white font-medium mb-1">Drop files here or click to browse</p>
-        <p className="text-sm text-slate-400 mb-3">Up to 50MB per file (bank annual reports supported)</p>
+        <p className="text-sm text-slate-400 mb-3">Up to 50MB per file - auto-processes on selection</p>
         
         <div className="flex flex-wrap gap-2 justify-center">
           {SUPPORTED_FORMATS.map((format) => (
@@ -332,13 +341,14 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
                   )}
                 </div>
 
-                {uploadedFile.status === "pending" && (
+                {uploadedFile.status === "error" && (
                   <button onClick={() => removeFile(name)} className="p-1 hover:bg-slate-700 rounded">
                     <X className="w-4 h-4 text-slate-400" />
                   </button>
                 )}
-                {uploadedFile.status === "uploading" && <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />}
-                {uploadedFile.status === "processing" && <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />}
+                {(uploadedFile.status === "uploading" || uploadedFile.status === "processing") && (
+                  <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
+                )}
                 {uploadedFile.status === "complete" && <CheckCircle className="w-5 h-5 text-emerald-400" />}
                 {uploadedFile.status === "error" && <AlertCircle className="w-5 h-5 text-red-400" />}
               </motion.div>
@@ -361,15 +371,6 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
             />
           </div>
         </div>
-      )}
-
-      {pendingCount > 0 && !isProcessing && (
-        <button
-          onClick={processFiles}
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium hover:from-emerald-500 hover:to-teal-500 transition-all"
-        >
-          Process {pendingCount} file(s)
-        </button>
       )}
     </div>
   );
