@@ -9,72 +9,76 @@ const log = (step: string, data?: object) => {
 
 export async function POST(request: NextRequest) {
   try {
-    const { blobUrl, filename, startPage, endPage, totalPages } = await request.json();
+    const { base64Data, filename, chunkIndex, totalChunks, mimeType } = await request.json();
     
-    log("Processing chunk", { filename, startPage, endPage, totalPages });
+    log("Processing chunk", { filename, chunkIndex, totalChunks, dataLength: base64Data?.length });
     
-    if (!blobUrl) {
-      return NextResponse.json({ error: "No blob URL provided" }, { status: 400 });
+    if (!base64Data) {
+      return NextResponse.json({ error: "No data provided" }, { status: 400 });
     }
 
-    const response = await fetch(blobUrl);
-    if (!response.ok) {
-      return NextResponse.json({ error: "Failed to fetch file" }, { status: 400 });
-    }
-    
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const base64Data = buffer.toString("base64");
-    
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
     
-    const prompt = `Analyze this PDF document. Focus ONLY on pages ${startPage} to ${endPage} (out of ~${totalPages} total).
+    const prompt = `You are extracting text from PART ${chunkIndex + 1} of ${totalChunks} of a financial document.
 
-INSTRUCTIONS:
-1. Extract content ONLY from pages ${startPage}-${endPage}
-2. For each page in this range, use format: === PAGE X ===
-3. Extract ALL important content:
-   - Financial figures, amounts, percentages
-   - Company names, regulatory references (SEBI, RBI)
-   - Key findings, summaries, conclusions
-   - Table data in markdown format
-4. For Indian languages (Hindi, Tamil, Bengali, etc.), use proper Unicode
-5. Be precise with numbers and dates
+EXTRACT ALL TEXT WITH COMPLETE ACCURACY:
+1. Every financial figure, amount, percentage, ratio
+2. All company names, regulatory references (SEBI, RBI, Basel)
+3. Table data as markdown tables
+4. Mark each page: === PAGE X ===
+5. Indian language content with proper Unicode
 
-Skip pages outside the ${startPage}-${endPage} range.`;
+CRITICAL DATA TO CAPTURE:
+- NPA ratios (GNPA, NNPA)
+- Capital Adequacy Ratio (CAR)
+- Net Interest Margin (NIM)
+- ROA, ROE percentages
+- Revenue, Profit/Loss, Total Assets
+- All amounts (crores/lakhs)
+
+Report: [PAGES: X] [LANGUAGE: X]
+Extract COMPLETE text, not summaries.`;
 
     const startTime = Date.now();
     
     const result = await model.generateContent([
       prompt,
-      {
-        inlineData: {
-          mimeType: "application/pdf",
-          data: base64Data,
-        },
-      },
+      { inlineData: { mimeType: mimeType || "application/pdf", data: base64Data } },
     ]);
 
-    const text = result.response.text();
+    const response = result.response.text();
     
+    const pagesMatch = response.match(/\[PAGES:\s*(\d+)\]/);
+    const pages = pagesMatch ? parseInt(pagesMatch[1], 10) : 1;
+    
+    const languageMatch = response.match(/\[LANGUAGE:\s*([^\]]+)\]/);
+    const language = languageMatch ? languageMatch[1].trim() : "English";
+    
+    const text = response
+      .replace(/\[PAGES:\s*\d+\]/g, "")
+      .replace(/\[LANGUAGE:\s*[^\]]+\]/g, "")
+      .trim();
+
     log("Chunk processed", { 
-      startPage, 
-      endPage, 
+      chunkIndex, 
       duration: Date.now() - startTime,
-      textLength: text.length 
+      textLength: text.length,
+      pages
     });
 
     return NextResponse.json({
       success: true,
-      startPage,
-      endPage,
+      chunkIndex,
       text,
+      pages,
+      language,
       processingTime: Date.now() - startTime,
     });
   } catch (error) {
     log("Chunk processing error", { error: String(error) });
     return NextResponse.json(
-      { error: String(error), startPage: 0, endPage: 0 },
+      { error: String(error), success: false },
       { status: 500 }
     );
   }

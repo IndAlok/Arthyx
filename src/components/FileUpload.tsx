@@ -20,6 +20,8 @@ interface UploadedFile {
 }
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const CHUNK_SIZE = 4 * 1024 * 1024;
+const MAX_PARALLEL_CHUNKS = 8;
 
 const SUPPORTED_FORMATS = [
   { ext: "pdf", label: "PDF", color: "text-red-400" },
@@ -29,6 +31,31 @@ const SUPPORTED_FORMATS = [
   { ext: "jpg", label: "JPG", color: "text-orange-400" },
   { ext: "txt", label: "Text", color: "text-slate-400" },
 ];
+
+function splitFileIntoChunks(buffer: ArrayBuffer, chunkSize: number): ArrayBuffer[] {
+  const chunks: ArrayBuffer[] = [];
+  const totalSize = buffer.byteLength;
+  
+  if (totalSize <= chunkSize) {
+    return [buffer];
+  }
+  
+  for (let i = 0; i < totalSize; i += chunkSize) {
+    const end = Math.min(i + chunkSize, totalSize);
+    chunks.push(buffer.slice(i, end));
+  }
+  
+  return chunks;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
 export default function FileUpload({ onUploadComplete, sessionId }: FileUploadProps) {
   const [files, setFiles] = useState<Map<string, UploadedFile>>(new Map());
@@ -63,6 +90,67 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     return blob.url;
   };
 
+  const processLargePDFParallel = async (
+    file: File,
+    onProgress: (msg: string, pct: number) => void
+  ): Promise<{ text: string; pages: number; language: string }> => {
+    const buffer = await file.arrayBuffer();
+    const chunks = splitFileIntoChunks(buffer, CHUNK_SIZE);
+    const totalChunks = Math.min(chunks.length, MAX_PARALLEL_CHUNKS);
+    
+    onProgress(`Processing ${totalChunks} chunks in parallel...`, 20);
+    
+    const isPDF = file.name.toLowerCase().endsWith(".pdf");
+    const mimeType = isPDF ? "application/pdf" : 
+      file.name.toLowerCase().endsWith(".png") ? "image/png" : 
+      file.name.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
+
+    const results = await Promise.allSettled(
+      chunks.slice(0, MAX_PARALLEL_CHUNKS).map(async (chunk, index) => {
+        const base64 = arrayBufferToBase64(chunk);
+        
+        const response = await fetch("/api/process-chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            base64Data: base64,
+            filename: file.name,
+            chunkIndex: index,
+            totalChunks,
+            mimeType,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Chunk ${index + 1} failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        onProgress(`Chunk ${index + 1}/${totalChunks} complete`, 20 + ((index + 1) / totalChunks) * 60);
+        return data;
+      })
+    );
+
+    let combinedText = "";
+    let totalPages = 0;
+    let language = "English";
+    let successCount = 0;
+
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled" && result.value.success) {
+        combinedText += `\n\n=== SECTION ${index + 1} ===\n\n`;
+        combinedText += result.value.text;
+        totalPages += result.value.pages || 0;
+        if (result.value.language) language = result.value.language;
+        successCount++;
+      }
+    });
+
+    onProgress(`Processed ${successCount}/${totalChunks} chunks`, 85);
+
+    return { text: combinedText, pages: totalPages || chunks.length, language };
+  };
+
   const processFiles = useCallback(async (filesToProcess: Map<string, UploadedFile>) => {
     if (processingRef.current) return;
     
@@ -71,40 +159,166 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
 
     processingRef.current = true;
     setIsProcessing(true);
-    setStatusMessage("Uploading...");
+    setStatusMessage("Analyzing files...");
     setOverallProgress(5);
 
     try {
-      const blobUrls: Array<{ url: string; filename: string }> = [];
+      for (const uploadedFile of pendingFiles) {
+        const file = uploadedFile.file;
+        const isPDF = file.name.toLowerCase().endsWith(".pdf");
+        const isLarge = file.size > CHUNK_SIZE;
 
-      for (let i = 0; i < pendingFiles.length; i++) {
-        const uploadedFile = pendingFiles[i];
-        setStatusMessage(`Uploading ${uploadedFile.file.name}...`);
-        
         setFiles((prev) => {
           const updated = new Map(prev);
-          updated.set(uploadedFile.file.name, { ...uploadedFile, status: "uploading", progress: 20 });
+          updated.set(file.name, { ...uploadedFile, status: "processing", progress: 10, message: "Analyzing..." });
           return updated;
         });
 
         try {
-          const blobUrl = await uploadToBlob(uploadedFile.file);
-          blobUrls.push({ url: blobUrl, filename: uploadedFile.file.name });
-          
+          let extractedText = "";
+          let pages = 1;
+          let language = "English";
+
+          if (isPDF && isLarge) {
+            setStatusMessage(`Large PDF detected (${(file.size / 1024 / 1024).toFixed(1)}MB) - parallel processing...`);
+            
+            const result = await processLargePDFParallel(file, (msg, pct) => {
+              setStatusMessage(msg);
+              setOverallProgress(pct);
+              setFiles((prev) => {
+                const updated = new Map(prev);
+                updated.set(file.name, { ...uploadedFile, status: "processing", progress: pct, message: msg });
+                return updated;
+              });
+            });
+            
+            extractedText = result.text;
+            pages = result.pages;
+            language = result.language;
+          } else {
+            setStatusMessage(`Uploading ${file.name}...`);
+            const blobUrl = await uploadToBlob(file);
+            
+            setStatusMessage(`Processing with AI...`);
+            setOverallProgress(40);
+            
+            const response = await fetch("/api/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                blobUrls: [{ url: blobUrl, filename: file.name }], 
+                sessionId 
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`Processing failed: ${response.status}`);
+            }
+
+            const reader = response.body?.getReader();
+            if (reader) {
+              const decoder = new TextDecoder();
+              let newSessionId = sessionId;
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n").filter((line) => line.startsWith("data:"));
+
+                for (const line of lines) {
+                  try {
+                    const data = JSON.parse(line.replace("data: ", ""));
+                    if (data.event === "status") {
+                      setStatusMessage(data.message);
+                      setOverallProgress(data.progress || overallProgress);
+                      if (data.sessionId) newSessionId = data.sessionId;
+                    }
+                    if (data.event === "file_complete") {
+                      pages = data.pages || 1;
+                    }
+                    if (data.event === "complete" && newSessionId) {
+                      onUploadComplete(newSessionId, [file.name]);
+                      setFiles((prev) => {
+                        const updated = new Map(prev);
+                        updated.set(file.name, { 
+                          ...uploadedFile, 
+                          status: "complete", 
+                          progress: 100, 
+                          pages,
+                          message: `${pages} page(s)` 
+                        });
+                        return updated;
+                      });
+                    }
+                  } catch { continue; }
+                }
+              }
+              continue;
+            }
+          }
+
+          setStatusMessage("Creating search index...");
+          setOverallProgress(90);
+
+          const blobUrl = await uploadToBlob(file);
+
+          const response = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              blobUrls: [{ url: blobUrl, filename: file.name }], 
+              sessionId,
+              preExtractedText: extractedText,
+              pagesProcessed: pages
+            }),
+          });
+
+          if (response.ok) {
+            const reader = response.body?.getReader();
+            if (reader) {
+              const decoder = new TextDecoder();
+              let newSessionId = sessionId;
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n").filter((line) => line.startsWith("data:"));
+
+                for (const line of lines) {
+                  try {
+                    const data = JSON.parse(line.replace("data: ", ""));
+                    if (data.event === "status" && data.sessionId) {
+                      newSessionId = data.sessionId;
+                    }
+                    if (data.event === "complete" && newSessionId) {
+                      onUploadComplete(newSessionId, [file.name]);
+                    }
+                  } catch { continue; }
+                }
+              }
+            }
+          }
+
           setFiles((prev) => {
             const updated = new Map(prev);
-            updated.set(uploadedFile.file.name, { 
+            updated.set(file.name, { 
               ...uploadedFile, 
-              status: "processing", 
-              progress: 40,
-              message: "Extracting text..." 
+              status: "complete", 
+              progress: 100, 
+              pages,
+              message: `${pages} page(s) extracted` 
             });
             return updated;
           });
+
         } catch (error) {
           setFiles((prev) => {
             const updated = new Map(prev);
-            updated.set(uploadedFile.file.name, { 
+            updated.set(file.name, { 
               ...uploadedFile, 
               status: "error", 
               message: String(error) 
@@ -112,108 +326,11 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
             return updated;
           });
         }
-
-        setOverallProgress(10 + ((i + 1) / pendingFiles.length) * 20);
       }
 
-      if (blobUrls.length === 0) {
-        processingRef.current = false;
-        setIsProcessing(false);
-        return;
-      }
+      setStatusMessage("Complete!");
+      setOverallProgress(100);
 
-      setStatusMessage("Processing with AI...");
-      setOverallProgress(35);
-
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ blobUrls, sessionId }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Processing failed: ${response.status}`);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response body");
-
-      const decoder = new TextDecoder();
-      let newSessionId = sessionId;
-      const completedFiles: string[] = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter((line) => line.startsWith("data:"));
-
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line.replace("data: ", ""));
-
-            switch (data.event) {
-              case "status":
-                setStatusMessage(data.message);
-                setOverallProgress(data.progress || overallProgress);
-                if (data.sessionId) newSessionId = data.sessionId;
-                break;
-
-              case "step":
-                setStatusMessage(data.message);
-                break;
-
-              case "file_complete":
-                completedFiles.push(data.filename);
-                setFiles((prev) => {
-                  const updated = new Map(prev);
-                  const existing = updated.get(data.filename);
-                  if (existing) {
-                    updated.set(data.filename, {
-                      ...existing,
-                      status: "complete",
-                      progress: 100,
-                      pages: data.pages,
-                      message: `${data.pages} page(s)`,
-                    });
-                  }
-                  return updated;
-                });
-                break;
-
-              case "file_error":
-                setFiles((prev) => {
-                  const updated = new Map(prev);
-                  const existing = updated.get(data.filename);
-                  if (existing) {
-                    updated.set(data.filename, {
-                      ...existing,
-                      status: "error",
-                      message: data.error,
-                    });
-                  }
-                  return updated;
-                });
-                break;
-
-              case "complete":
-                setStatusMessage("Complete!");
-                setOverallProgress(100);
-                if (newSessionId) {
-                  onUploadComplete(newSessionId, completedFiles);
-                }
-                break;
-
-              case "error":
-                setStatusMessage(`Error: ${data.message}`);
-                break;
-            }
-          } catch {
-            continue;
-          }
-        }
-      }
     } catch (error) {
       setStatusMessage(`Error: ${String(error)}`);
     } finally {
@@ -301,7 +418,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
 
         <Upload className={cn("w-10 h-10 mx-auto mb-3", isDragging ? "text-emerald-400" : "text-slate-500")} />
         <p className="text-white font-medium mb-1">Drop files here or click to browse</p>
-        <p className="text-sm text-slate-400 mb-3">Up to 50MB - Fast text extraction for PDFs</p>
+        <p className="text-sm text-slate-400 mb-3">Up to 50MB - Parallel AI processing for large PDFs</p>
         
         <div className="flex flex-wrap gap-2 justify-center">
           {SUPPORTED_FORMATS.map((format) => (
