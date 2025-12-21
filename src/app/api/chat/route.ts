@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateEmbeddings, generateChatResponse, ChatMessage } from "@/lib/gemini";
+import { generateEmbeddings, generateChatResponse, ChatMessage, SourceContext } from "@/lib/gemini";
 import { queryDocuments } from "@/lib/pinecone";
 import { getSession, addMessage, ConversationMessage } from "@/lib/redis";
 
@@ -26,43 +26,50 @@ export async function POST(request: NextRequest) {
 
     const [queryEmbedding] = await generateEmbeddings([message]);
 
-    const searchResults = await queryDocuments(queryEmbedding, 8);
+    const searchResults = await queryDocuments(queryEmbedding, 10);
 
-    const contextParts = searchResults.map((result) => {
-      const metadata = result.metadata as {
-        content?: string;
-        filename?: string;
-        pageNumber?: number;
-      };
-      return `[Source: ${metadata.filename}, Page ${metadata.pageNumber}]\n${metadata.content}`;
-    });
-    const context = contextParts.join("\n\n---\n\n");
-
-    const sources = searchResults.map((result) => {
+    const sources: SourceContext[] = searchResults.map((result) => {
       const metadata = result.metadata as {
         content?: string;
         filename?: string;
         pageNumber?: number;
         boundingBox?: string;
       };
+      
+      let boundingBox = undefined;
+      if (metadata.boundingBox) {
+        try {
+          boundingBox = JSON.parse(metadata.boundingBox);
+        } catch {
+          // Invalid bounding box
+        }
+      }
+
       return {
         filename: metadata.filename || "Unknown",
         pageNumber: metadata.pageNumber || 1,
-        excerpt: (metadata.content || "").substring(0, 200),
-        boundingBox: metadata.boundingBox
-          ? JSON.parse(metadata.boundingBox)
-          : null,
-        score: result.score || 0,
+        excerpt: (metadata.content || "").substring(0, 300),
+        relevanceScore: result.score || 0,
+        boundingBox,
       };
     });
 
-    const history: ChatMessage[] = session.messages.slice(-6).map((m) => ({
+    const contextParts = sources.map((s) => 
+      `[${s.filename}, Page ${s.pageNumber}]\n${s.excerpt}`
+    );
+    const context = contextParts.join("\n\n---\n\n");
+
+    const history: ChatMessage[] = session.messages.slice(-8).map((m) => ({
       role: m.role === "user" ? "user" : "model",
       content: m.content,
     }));
     history.push({ role: "user", content: message });
 
-    const response = await generateChatResponse(history, context);
+    const { response, citedSources } = await generateChatResponse(
+      history,
+      context,
+      sources
+    );
 
     await addMessage(sessionId, {
       role: "user",
@@ -74,7 +81,7 @@ export async function POST(request: NextRequest) {
       role: "assistant",
       content: response,
       timestamp: Date.now(),
-      sources: sources.slice(0, 3).map((s) => ({
+      sources: citedSources.slice(0, 5).map((s) => ({
         filename: s.filename,
         pageNumber: s.pageNumber,
         excerpt: s.excerpt,
@@ -82,7 +89,7 @@ export async function POST(request: NextRequest) {
     });
 
     let chartConfig = null;
-    const chartMatch = response.match(/\{"chart":\s*\{[^}]+\}\}/);
+    const chartMatch = response.match(/\{"chart":\s*\{[\s\S]*?\}\}/);
     if (chartMatch) {
       try {
         chartConfig = JSON.parse(chartMatch[0]).chart;
@@ -94,7 +101,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       response,
-      sources,
+      sources: citedSources.map((s) => ({
+        filename: s.filename,
+        pageNumber: s.pageNumber,
+        excerpt: s.excerpt,
+        relevanceScore: s.relevanceScore,
+        boundingBox: s.boundingBox,
+      })),
       chartConfig,
     });
   } catch (error) {

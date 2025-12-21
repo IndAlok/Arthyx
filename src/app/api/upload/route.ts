@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { processDocument } from "@/lib/ocr";
+import { processDocumentsInParallel, ProcessedDocument } from "@/lib/document-processor";
 import { generateEmbeddings } from "@/lib/gemini";
 import { upsertDocumentChunks, DocumentChunk } from "@/lib/pinecone";
 import { createSession, addDocument, getSession } from "@/lib/redis";
@@ -8,18 +8,14 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 4 * 1024 * 1024;
-const MAX_CHUNKS_PER_FILE = 8;
+const SUPPORTED_EXTENSIONS = [
+  "pdf", "png", "jpg", "jpeg", "webp", "gif", "bmp",
+  "doc", "docx", "xls", "xlsx", "csv",
+  "txt", "md", "json", "xml", "html"
+];
 
 export async function POST(request: NextRequest) {
   try {
-    const contentLength = request.headers.get("content-length");
-    if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
-      return NextResponse.json(
-        { error: "Total upload size exceeds 10MB limit" },
-        { status: 413 }
-      );
-    }
-
     const formData = await request.formData();
     const files = formData.getAll("files") as File[];
     let sessionId = formData.get("sessionId") as string | null;
@@ -31,13 +27,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const oversizedFiles = files.filter((f) => f.size > MAX_FILE_SIZE);
-    if (oversizedFiles.length > 0) {
+    const validFiles: File[] = [];
+    const errors: string[] = [];
+
+    for (const file of files) {
+      const ext = file.name.toLowerCase().split(".").pop() || "";
+      
+      if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+        errors.push(`${file.name}: Unsupported format`);
+        continue;
+      }
+      
+      if (file.size > MAX_FILE_SIZE) {
+        errors.push(`${file.name}: File too large (max 4MB)`);
+        continue;
+      }
+      
+      validFiles.push(file);
+    }
+
+    if (validFiles.length === 0) {
       return NextResponse.json(
-        {
-          error: `Files too large (max 4MB each): ${oversizedFiles.map((f) => f.name).join(", ")}`,
-        },
-        { status: 413 }
+        { error: "No valid files to process", details: errors },
+        { status: 400 }
       );
     }
 
@@ -51,43 +63,50 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const results = [];
+    const fileData = await Promise.all(
+      validFiles.map(async (file) => ({
+        buffer: Buffer.from(await file.arrayBuffer()),
+        filename: file.name,
+      }))
+    );
 
-    for (const file of files.slice(0, 2)) {
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const filename = file.name;
+    const processedDocs = await processDocumentsInParallel(fileData);
 
-      const { chunks, fullText } = await processDocument(buffer, filename);
+    const results: Array<{
+      filename: string;
+      documentType: string;
+      chunks: number;
+      textLength: number;
+      requiresOCR: boolean;
+      success: boolean;
+    }> = [];
 
-      const limitedChunks = chunks.slice(0, MAX_CHUNKS_PER_FILE);
-
-      const documentChunks: DocumentChunk[] = limitedChunks.map((chunk, index) => ({
-        id: `${sessionId}_${filename}_${index}`,
+    for (const doc of processedDocs) {
+      const documentChunks: DocumentChunk[] = doc.chunks.slice(0, 20).map((chunk, index) => ({
+        id: `${sessionId}_${doc.metadata.filename}_${index}`,
         content: chunk.content,
         metadata: {
-          filename,
+          filename: doc.metadata.filename,
           pageNumber: chunk.pageNumber,
           boundingBox: chunk.boundingBox,
         },
       }));
 
       if (documentChunks.length > 0) {
-        const batchSize = 4;
-        for (let i = 0; i < documentChunks.length; i += batchSize) {
-          const batch = documentChunks.slice(i, i + batchSize);
-          const embeddings = await generateEmbeddings(
-            batch.map((c) => c.content)
-          );
-          await upsertDocumentChunks(batch, embeddings);
-        }
+        const embeddings = await generateEmbeddings(
+          documentChunks.map((c) => c.content)
+        );
+        await upsertDocumentChunks(documentChunks, embeddings);
       }
 
-      await addDocument(sessionId, filename);
+      await addDocument(sessionId, doc.metadata.filename);
 
       results.push({
-        filename,
+        filename: doc.metadata.filename,
+        documentType: doc.documentType,
         chunks: documentChunks.length,
-        textLength: fullText.length,
+        textLength: doc.fullText.length,
+        requiresOCR: doc.requiresOCR,
         success: true,
       });
     }
@@ -96,6 +115,7 @@ export async function POST(request: NextRequest) {
       success: true,
       sessionId,
       files: results,
+      errors: errors.length > 0 ? errors : undefined,
       message: `Successfully processed ${results.length} file(s)`,
     });
   } catch (error) {

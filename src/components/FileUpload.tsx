@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, X, Loader2, CheckCircle } from "lucide-react";
+import { Upload, FileText, X, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface FileUploadProps {
@@ -15,7 +15,17 @@ interface UploadedFile {
   size: number;
   status: "uploading" | "success" | "error";
   error?: string;
+  documentType?: string;
 }
+
+const SUPPORTED_FORMATS = {
+  documents: ["PDF", "DOC", "DOCX"],
+  spreadsheets: ["XLS", "XLSX", "CSV"],
+  images: ["PNG", "JPG", "JPEG", "WEBP"],
+  text: ["TXT", "MD", "JSON", "XML", "HTML"],
+};
+
+const MAX_FILE_SIZE = 4 * 1024 * 1024;
 
 export default function FileUpload({
   onUploadComplete,
@@ -35,38 +45,51 @@ export default function FileUpload({
     setIsDragging(false);
   }, []);
 
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
+  const getAllSupportedExtensions = () => {
+    return Object.values(SUPPORTED_FORMATS).flat().map((ext) => ext.toLowerCase());
+  };
 
   const processFiles = async (fileList: FileList | File[]) => {
-    const validExtensions = ["pdf", "png", "jpg", "jpeg", "webp"];
-    
-    const newFiles = Array.from(fileList).filter((file) => {
-      const ext = file.name.toLowerCase().split(".").pop();
-      return validExtensions.includes(ext || "");
-    });
+    const supportedExtensions = getAllSupportedExtensions();
+    const newFiles = Array.from(fileList);
+    const validFiles: File[] = [];
+    const invalidFiles: UploadedFile[] = [];
 
-    if (newFiles.length === 0) return;
-
-    const oversizedFiles = newFiles.filter((f) => f.size > MAX_FILE_SIZE);
-    if (oversizedFiles.length > 0) {
-      setFiles((prev) => [
-        ...prev,
-        ...oversizedFiles.map((f) => ({
-          name: f.name,
-          size: f.size,
-          status: "error" as const,
-          error: `File too large (max 4MB)`,
-        })),
-      ]);
-      const validFiles = newFiles.filter((f) => f.size <= MAX_FILE_SIZE);
-      if (validFiles.length === 0) return;
-      newFiles.length = 0;
-      newFiles.push(...validFiles);
+    for (const file of newFiles) {
+      const ext = file.name.toLowerCase().split(".").pop() || "";
+      
+      if (!supportedExtensions.includes(ext)) {
+        invalidFiles.push({
+          name: file.name,
+          size: file.size,
+          status: "error",
+          error: "Unsupported format",
+        });
+        continue;
+      }
+      
+      if (file.size > MAX_FILE_SIZE) {
+        invalidFiles.push({
+          name: file.name,
+          size: file.size,
+          status: "error",
+          error: "File too large (max 4MB)",
+        });
+        continue;
+      }
+      
+      validFiles.push(file);
     }
+
+    if (invalidFiles.length > 0) {
+      setFiles((prev) => [...prev, ...invalidFiles]);
+    }
+
+    if (validFiles.length === 0) return;
 
     setFiles((prev) => [
       ...prev,
-      ...newFiles.map((f) => ({
+      ...validFiles.map((f) => ({
         name: f.name,
         size: f.size,
         status: "uploading" as const,
@@ -76,7 +99,7 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
     setIsUploading(true);
 
     const formData = new FormData();
-    newFiles.forEach((file) => formData.append("files", file));
+    validFiles.forEach((file) => formData.append("files", file));
     if (sessionId) formData.append("sessionId", sessionId);
 
     try {
@@ -89,11 +112,19 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
 
       if (data.success) {
         setFiles((prev) =>
-          prev.map((f) =>
-            newFiles.some((nf) => nf.name === f.name)
-              ? { ...f, status: "success" as const }
-              : f
-          )
+          prev.map((f) => {
+            const fileResult = data.files.find(
+              (df: { filename: string; documentType: string }) => df.filename === f.name
+            );
+            if (fileResult) {
+              return {
+                ...f,
+                status: "success" as const,
+                documentType: fileResult.documentType,
+              };
+            }
+            return f;
+          })
         );
         onUploadComplete(
           data.sessionId,
@@ -102,7 +133,7 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
       } else {
         setFiles((prev) =>
           prev.map((f) =>
-            newFiles.some((nf) => nf.name === f.name)
+            validFiles.some((vf) => vf.name === f.name)
               ? { ...f, status: "error" as const, error: data.error }
               : f
           )
@@ -111,7 +142,7 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
     } catch {
       setFiles((prev) =>
         prev.map((f) =>
-          newFiles.some((nf) => nf.name === f.name)
+          validFiles.some((vf) => vf.name === f.name)
             ? { ...f, status: "error" as const, error: "Network error" }
             : f
         )
@@ -143,6 +174,23 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
     return (bytes / 1048576).toFixed(1) + " MB";
   };
 
+  const getFileIcon = (filename: string) => {
+    const ext = filename.toLowerCase().split(".").pop() || "";
+    const colors: Record<string, string> = {
+      pdf: "text-red-400",
+      doc: "text-blue-400",
+      docx: "text-blue-400",
+      xls: "text-green-400",
+      xlsx: "text-green-400",
+      csv: "text-green-400",
+      png: "text-purple-400",
+      jpg: "text-purple-400",
+      jpeg: "text-purple-400",
+      txt: "text-slate-400",
+    };
+    return colors[ext] || "text-emerald-400";
+  };
+
   return (
     <div className="space-y-4">
       <div
@@ -150,7 +198,7 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "relative border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-300 cursor-pointer",
+          "relative border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 cursor-pointer",
           isDragging
             ? "border-emerald-500 bg-emerald-500/10"
             : "border-slate-700 hover:border-slate-600 bg-slate-900/30"
@@ -159,7 +207,7 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
         <input
           type="file"
           multiple
-          accept=".pdf,.png,.jpg,.jpeg,.webp"
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.webp,.txt,.md,.json,.xml,.html"
           onChange={handleFileInput}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           disabled={isUploading}
@@ -167,11 +215,11 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
 
         <motion.div
           animate={{ scale: isDragging ? 1.1 : 1 }}
-          className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center"
+          className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center"
         >
           <Upload
             className={cn(
-              "w-8 h-8 transition-colors",
+              "w-7 h-7 transition-colors",
               isDragging ? "text-emerald-400" : "text-slate-400"
             )}
           />
@@ -180,11 +228,17 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
         <h3 className="text-lg font-semibold text-white mb-2">
           {isDragging ? "Drop files here" : "Upload Documents"}
         </h3>
-        <p className="text-slate-400 text-sm">
-          PDF, PNG, JPG • Multiple files supported • Scanned documents OK
-        </p>
-        <p className="text-slate-500 text-xs mt-2">
-          Hindi, English, Tamil, Bengali, Gujarati + more languages
+        
+        <div className="flex flex-wrap justify-center gap-1 mb-2">
+          {Object.entries(SUPPORTED_FORMATS).map(([category, formats]) => (
+            <span key={category} className="text-xs text-slate-500">
+              {formats.join(", ")}{" "}
+            </span>
+          ))}
+        </div>
+        
+        <p className="text-slate-500 text-xs">
+          Hindi, English, Tamil, Bengali, Gujarati + more • Max 4MB per file
         </p>
       </div>
 
@@ -205,12 +259,17 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
                 className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl border border-slate-700/50"
               >
                 <div className="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-emerald-400" />
+                  <FileText className={cn("w-5 h-5", getFileIcon(file.name))} />
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white truncate">{file.name}</p>
-                  <p className="text-xs text-slate-500">{formatSize(file.size)}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">{formatSize(file.size)}</span>
+                    {file.documentType && (
+                      <span className="text-xs text-emerald-400 capitalize">• {file.documentType}</span>
+                    )}
+                  </div>
                 </div>
 
                 {file.status === "uploading" && (
@@ -220,7 +279,10 @@ const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB limit for Vercel
                   <CheckCircle className="w-5 h-5 text-emerald-400" />
                 )}
                 {file.status === "error" && (
-                  <span className="text-xs text-red-400">{file.error}</span>
+                  <div className="flex items-center gap-1">
+                    <AlertCircle className="w-4 h-4 text-red-400" />
+                    <span className="text-xs text-red-400">{file.error}</span>
+                  </div>
                 )}
 
                 <button

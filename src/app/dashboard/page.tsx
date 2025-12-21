@@ -13,7 +13,8 @@ interface Source {
   filename: string;
   pageNumber: number;
   excerpt?: string;
-  score?: number;
+  relevanceScore?: number;
+  boundingBox?: { x: number; y: number; width: number; height: number };
 }
 
 interface ChartConfig {

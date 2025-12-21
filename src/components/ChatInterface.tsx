@@ -2,24 +2,21 @@
 
 import { useState, useRef, FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Sparkles } from "lucide-react";
+import { Send, Loader2, Sparkles, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
+import ContextFrame, { SourceContextData } from "./ContextFrame";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  sources?: Array<{
-    filename: string;
-    pageNumber: number;
-    excerpt: string;
-  }>;
+  sources?: SourceContextData[];
   chartConfig?: object;
 }
 
 interface ChatInterfaceProps {
   sessionId: string | null;
-  onSourceClick?: (source: { filename: string; pageNumber: number; excerpt?: string }) => void;
+  onSourceClick?: (source: SourceContextData) => void;
   onChartData?: (config: object) => void;
 }
 
@@ -31,6 +28,7 @@ export default function ChatInterface({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [expandedContextId, setExpandedContextId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -70,6 +68,7 @@ export default function ChatInterface({
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
+        setExpandedContextId(assistantMessage.id);
 
         if (data.chartConfig && onChartData) {
           onChartData(data.chartConfig);
@@ -99,6 +98,10 @@ export default function ChatInterface({
     }
   };
 
+  const toggleContext = (messageId: string) => {
+    setExpandedContextId(expandedContextId === messageId ? null : messageId);
+  };
+
   return (
     <div className="flex flex-col h-full bg-gradient-to-b from-slate-900/50 to-slate-950/50 backdrop-blur-xl rounded-2xl border border-slate-800/50">
       <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-800/50">
@@ -121,9 +124,8 @@ export default function ChatInterface({
               Ready to Analyze
             </h3>
             <p className="text-slate-400 max-w-md">
-              Upload financial documents and ask any question. I can analyze
-              balance sheets, income statements, tax forms, and more in multiple
-              languages.
+              Upload financial documents (PDF, Word, Excel, images, text) and ask any question. 
+              I support multiple languages including Hindi, Tamil, Bengali, and Gujarati.
             </p>
           </div>
         )}
@@ -135,41 +137,54 @@ export default function ChatInterface({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className={cn(
-                "flex",
-                message.role === "user" ? "justify-end" : "justify-start"
-              )}
+              className="space-y-2"
             >
               <div
                 className={cn(
-                  "max-w-[80%] rounded-2xl px-4 py-3",
-                  message.role === "user"
-                    ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white"
-                    : "bg-slate-800/70 text-slate-100"
+                  "flex",
+                  message.role === "user" ? "justify-end" : "justify-start"
                 )}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <div
+                  className={cn(
+                    "max-w-[85%] rounded-2xl px-4 py-3",
+                    message.role === "user"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white"
+                      : "bg-slate-800/70 text-slate-100"
+                  )}
+                >
+                  <p className="whitespace-pre-wrap">{message.content}</p>
 
-                {message.sources && message.sources.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-slate-700/50">
-                    <p className="text-xs text-slate-400 mb-2">Sources:</p>
-                    <div className="space-y-1">
-                      {message.sources.slice(0, 3).map((source, i) => (
-                        <button
-                          key={i}
-                          onClick={() => onSourceClick?.(source)}
-                          className="block w-full text-left text-xs px-2 py-1 rounded bg-slate-700/50 hover:bg-slate-700 transition-colors"
-                        >
-                          <span className="text-emerald-400">
-                            {source.filename}
-                          </span>
-                          <span className="text-slate-500"> • Page {source.pageNumber}</span>
-                        </button>
-                      ))}
+                  {message.role === "assistant" && message.sources && message.sources.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-700/50">
+                      <button
+                        onClick={() => toggleContext(message.id)}
+                        className="flex items-center gap-2 text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        {expandedContextId === message.id ? "Hide" : "Show"} {message.sources.length} source(s)
+                      </button>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
+
+              {message.role === "assistant" && 
+               message.sources && 
+               message.sources.length > 0 && 
+               expandedContextId === message.id && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="ml-4"
+                >
+                  <ContextFrame
+                    sources={message.sources}
+                    onClose={() => setExpandedContextId(null)}
+                  />
+                </motion.div>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>
@@ -182,7 +197,7 @@ export default function ChatInterface({
           >
             <div className="bg-slate-800/70 rounded-2xl px-4 py-3 flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-              <span className="text-slate-400">Analyzing...</span>
+              <span className="text-slate-400">Analyzing documents...</span>
             </div>
           </motion.div>
         )}
