@@ -12,8 +12,6 @@ export interface ProcessedDocument {
   metadata: {
     filename: string;
     pageCount?: number;
-    language?: string;
-    tables?: TableData[];
   };
 }
 
@@ -21,27 +19,16 @@ export interface DocumentChunk {
   content: string;
   pageNumber: number;
   chunkIndex: number;
-  boundingBox?: BoundingBox;
-  type: "text" | "table" | "header" | "paragraph";
 }
 
-export interface BoundingBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+const log = (step: string, data?: object) => {
+  console.log(`[DOC-PROCESSOR] ${step}`, data ? JSON.stringify(data) : "");
+};
 
-export interface TableData {
-  headers: string[];
-  rows: string[][];
-  pageNumber: number;
-}
-
-function detectDocumentType(filename: string, buffer: Buffer): DocumentType {
+function detectDocumentType(filename: string): DocumentType {
   const ext = filename.toLowerCase().split(".").pop() || "";
   
-  const imageExtensions = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff"];
+  const imageExtensions = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
   const wordExtensions = ["doc", "docx"];
   const excelExtensions = ["xls", "xlsx", "csv"];
   const textExtensions = ["txt", "md", "json", "xml", "html", "css", "js", "ts"];
@@ -52,105 +39,66 @@ function detectDocumentType(filename: string, buffer: Buffer): DocumentType {
   if (excelExtensions.includes(ext)) return "excel";
   if (textExtensions.includes(ext)) return "text";
   
-  const header = buffer.slice(0, 8).toString("hex");
-  if (header.startsWith("25504446")) return "pdf";
-  if (header.startsWith("ffd8ff")) return "image";
-  if (header.startsWith("89504e47")) return "image";
-  if (header.startsWith("504b0304")) return "word";
-  
   return "unknown";
 }
 
 async function extractTextFromWord(buffer: Buffer): Promise<string> {
+  log("Extracting text from Word document");
   try {
     const result = await mammoth.extractRawText({ buffer });
+    log("Word extraction complete", { length: result.value.length });
     return result.value;
   } catch (error) {
-    console.error("Word extraction error:", error);
+    log("Word extraction error", { error: String(error) });
     return "";
   }
 }
 
-function extractTextFromExcel(buffer: Buffer): { text: string; tables: TableData[] } {
+function extractTextFromExcel(buffer: Buffer): string {
+  log("Extracting text from Excel document");
   try {
     const workbook = XLSX.read(buffer, { type: "buffer" });
-    const tables: TableData[] = [];
     let fullText = "";
 
     for (const sheetName of workbook.SheetNames) {
       const sheet = workbook.Sheets[sheetName];
       const jsonData = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
       
-      if (jsonData.length > 0) {
-        const headers = (jsonData[0] || []).map(String);
-        const rows = jsonData.slice(1).map(row => (row || []).map(String));
-        
-        tables.push({
-          headers,
-          rows,
-          pageNumber: workbook.SheetNames.indexOf(sheetName) + 1,
-        });
-        
-        fullText += `\n[Sheet: ${sheetName}]\n`;
-        fullText += headers.join(" | ") + "\n";
-        rows.forEach(row => {
-          fullText += row.join(" | ") + "\n";
-        });
+      fullText += `\n[Sheet: ${sheetName}]\n`;
+      for (const row of jsonData) {
+        if (row && row.length > 0) {
+          fullText += (row || []).map(String).join(" | ") + "\n";
+        }
       }
     }
 
-    return { text: fullText, tables };
+    log("Excel extraction complete", { length: fullText.length });
+    return fullText;
   } catch (error) {
-    console.error("Excel extraction error:", error);
-    return { text: "", tables: [] };
+    log("Excel extraction error", { error: String(error) });
+    return "";
   }
 }
 
 function extractTextFromPlainText(buffer: Buffer): string {
-  return buffer.toString("utf-8");
+  log("Extracting plain text");
+  const text = buffer.toString("utf-8");
+  log("Plain text extraction complete", { length: text.length });
+  return text;
 }
 
-async function performAdvancedOCR(
-  buffer: Buffer,
-  mimeType: string,
-  filename: string
-): Promise<{ text: string; blocks: DocumentChunk[] }> {
+async function performOCR(buffer: Buffer, mimeType: string, filename: string): Promise<string> {
+  log("Starting OCR", { filename, mimeType });
+  
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
   const base64Data = buffer.toString("base64");
 
-  const prompt = `You are an expert document analyzer. Extract ALL content from this document with maximum accuracy.
-
-IMPORTANT INSTRUCTIONS:
-1. Extract EVERY piece of text, number, and symbol visible
-2. Preserve table structures using markdown format
-3. Identify headers, paragraphs, and data sections
-4. For Indian languages (Hindi, Tamil, Bengali, Gujarati, etc.), extract with proper Unicode
-5. For financial documents, be extremely precise with numbers, currencies, and percentages
-
-OUTPUT FORMAT (JSON only, no markdown code blocks):
-{
-  "fullText": "complete extracted text preserving structure",
-  "blocks": [
-    {
-      "content": "text content",
-      "type": "header|paragraph|table|list",
-      "position": {"x": 0, "y": 0, "width": 100, "height": 10},
-      "confidence": 0.95
-    }
-  ],
-  "tables": [
-    {
-      "headers": ["col1", "col2"],
-      "rows": [["val1", "val2"]]
-    }
-  ],
-  "language": "detected language(s)",
-  "documentType": "invoice|balance_sheet|tax_form|report|letter|other"
-}`;
+  const prompt = `Extract all text content from this document. Return only the extracted text, nothing else. Be precise with numbers and financial data.`;
 
   try {
+    const startTime = Date.now();
     const result = await model.generateContent([
       prompt,
       {
@@ -161,162 +109,101 @@ OUTPUT FORMAT (JSON only, no markdown code blocks):
       },
     ]);
 
-    const responseText = result.response.text();
+    const text = result.response.text();
+    log("OCR complete", { 
+      filename, 
+      duration: Date.now() - startTime,
+      textLength: text.length 
+    });
     
-    const cleanedResponse = responseText
-      .replace(/```json\n?/g, "")
-      .replace(/```\n?/g, "")
-      .trim();
-    
-    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-    
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      
-      const blocks: DocumentChunk[] = (parsed.blocks || []).map(
-        (b: { content: string; type: string; position?: BoundingBox }, index: number) => ({
-          content: b.content,
-          pageNumber: 1,
-          chunkIndex: index,
-          boundingBox: b.position,
-          type: b.type || "paragraph",
-        })
-      );
-
-      return {
-        text: parsed.fullText || "",
-        blocks,
-      };
-    }
-
-    return { text: responseText, blocks: [] };
+    return text;
   } catch (error) {
-    console.error("OCR Error:", error);
+    log("OCR error", { error: String(error), filename });
     throw error;
   }
 }
 
-function createChunks(text: string, chunkSize: number = 600, overlap: number = 100): DocumentChunk[] {
+function createChunks(text: string, maxChunks: number = 10): DocumentChunk[] {
+  log("Creating chunks", { textLength: text.length, maxChunks });
+  
   const chunks: DocumentChunk[] = [];
-  const paragraphs = text.split(/\n\n+/);
-  let currentChunk = "";
-  let chunkIndex = 0;
-
-  for (const paragraph of paragraphs) {
-    if (currentChunk.length + paragraph.length > chunkSize && currentChunk.length > 0) {
+  const chunkSize = 500;
+  
+  for (let i = 0; i < text.length && chunks.length < maxChunks; i += chunkSize) {
+    const chunk = text.substring(i, i + chunkSize).trim();
+    if (chunk.length > 30) {
       chunks.push({
-        content: currentChunk.trim(),
+        content: chunk,
         pageNumber: 1,
-        chunkIndex: chunkIndex++,
-        type: "paragraph",
+        chunkIndex: chunks.length,
       });
-      
-      const words = currentChunk.split(" ");
-      currentChunk = words.slice(-Math.floor(overlap / 5)).join(" ") + "\n\n" + paragraph;
-    } else {
-      currentChunk += (currentChunk ? "\n\n" : "") + paragraph;
     }
   }
 
-  if (currentChunk.trim().length > 50) {
-    chunks.push({
-      content: currentChunk.trim(),
-      pageNumber: 1,
-      chunkIndex: chunkIndex,
-      type: "paragraph",
-    });
-  }
-
+  log("Chunks created", { count: chunks.length });
   return chunks;
 }
 
 export async function processDocument(
   buffer: Buffer,
-  filename: string
+  filename: string,
+  onProgress?: (step: string) => void
 ): Promise<ProcessedDocument> {
-  const documentType = detectDocumentType(filename, buffer);
+  const documentType = detectDocumentType(filename);
+  log("Processing document", { filename, documentType, size: buffer.length });
+  
+  onProgress?.(`Detected ${documentType} document`);
+
   let fullText = "";
-  let blocks: DocumentChunk[] = [];
-  let tables: TableData[] = [];
   let requiresOCR = false;
 
   switch (documentType) {
     case "text":
+      onProgress?.("Extracting text content...");
       fullText = extractTextFromPlainText(buffer);
-      blocks = createChunks(fullText);
       break;
 
     case "word":
+      onProgress?.("Processing Word document...");
       fullText = await extractTextFromWord(buffer);
-      blocks = createChunks(fullText);
       break;
 
     case "excel":
-      const excelResult = extractTextFromExcel(buffer);
-      fullText = excelResult.text;
-      tables = excelResult.tables;
-      blocks = createChunks(fullText);
+      onProgress?.("Processing spreadsheet data...");
+      fullText = extractTextFromExcel(buffer);
       break;
 
     case "pdf":
     case "image":
       requiresOCR = true;
+      onProgress?.("Analyzing document with AI vision...");
       const mimeType = documentType === "pdf" ? "application/pdf" : 
         filename.toLowerCase().endsWith(".png") ? "image/png" :
         filename.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
       
-      const ocrResult = await performAdvancedOCR(buffer, mimeType, filename);
-      fullText = ocrResult.text;
-      blocks = ocrResult.blocks.length > 0 ? ocrResult.blocks : createChunks(fullText);
+      fullText = await performOCR(buffer, mimeType, filename);
       break;
 
     default:
+      onProgress?.("Reading file content...");
       fullText = extractTextFromPlainText(buffer);
-      blocks = createChunks(fullText);
   }
+
+  onProgress?.("Creating searchable index...");
+  const chunks = createChunks(fullText);
+
+  log("Document processing complete", { 
+    filename, 
+    documentType, 
+    textLength: fullText.length,
+    chunkCount: chunks.length 
+  });
 
   return {
     fullText,
-    chunks: blocks,
+    chunks,
     documentType,
     requiresOCR,
-    metadata: {
-      filename,
-      tables: tables.length > 0 ? tables : undefined,
-    },
+    metadata: { filename },
   };
-}
-
-export async function processDocumentsInParallel(
-  files: Array<{ buffer: Buffer; filename: string }>
-): Promise<ProcessedDocument[]> {
-  const textBasedDocs: Array<{ buffer: Buffer; filename: string; index: number }> = [];
-  const ocrRequiredDocs: Array<{ buffer: Buffer; filename: string; index: number }> = [];
-
-  files.forEach((file, index) => {
-    const docType = detectDocumentType(file.filename, file.buffer);
-    if (docType === "pdf" || docType === "image") {
-      ocrRequiredDocs.push({ ...file, index });
-    } else {
-      textBasedDocs.push({ ...file, index });
-    }
-  });
-
-  const textResults = await Promise.all(
-    textBasedDocs.map(async (doc) => ({
-      index: doc.index,
-      result: await processDocument(doc.buffer, doc.filename),
-    }))
-  );
-
-  const ocrResults: Array<{ index: number; result: ProcessedDocument }> = [];
-  for (const doc of ocrRequiredDocs) {
-    const result = await processDocument(doc.buffer, doc.filename);
-    ocrResults.push({ index: doc.index, result });
-  }
-
-  const allResults = [...textResults, ...ocrResults];
-  allResults.sort((a, b) => a.index - b.index);
-
-  return allResults.map((r) => r.result);
 }

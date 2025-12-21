@@ -33,24 +33,13 @@ export async function POST(request: NextRequest) {
         content?: string;
         filename?: string;
         pageNumber?: number;
-        boundingBox?: string;
       };
-      
-      let boundingBox = undefined;
-      if (metadata.boundingBox) {
-        try {
-          boundingBox = JSON.parse(metadata.boundingBox);
-        } catch {
-          // Invalid bounding box
-        }
-      }
 
       return {
         filename: metadata.filename || "Unknown",
         pageNumber: metadata.pageNumber || 1,
         excerpt: (metadata.content || "").substring(0, 300),
         relevanceScore: result.score || 0,
-        boundingBox,
       };
     });
 
@@ -106,7 +95,6 @@ export async function POST(request: NextRequest) {
         pageNumber: s.pageNumber,
         excerpt: s.excerpt,
         relevanceScore: s.relevanceScore,
-        boundingBox: s.boundingBox,
       })),
       chartConfig,
     });

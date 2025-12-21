@@ -13,21 +13,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Arthyx | AI Financial Document Assistant",
+  title: "Arthyx | Financial Document Intelligence",
   description:
-    "Advanced multilingual financial document analysis powered by AI. Upload documents in any format, get intelligent insights, visualizations, and answers.",
+    "Advanced multilingual financial document analysis. Upload documents in any format, get intelligent insights, visualizations, and accurate answers.",
   keywords: [
     "financial analysis",
-    "AI assistant",
     "document analysis",
     "OCR",
     "Hindi",
     "multilingual",
-    "RAG",
+    "AI assistant",
   ],
   authors: [{ name: "Arthyx" }],
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
   openGraph: {
-    title: "Arthyx | AI Financial Document Assistant",
+    title: "Arthyx | Financial Document Intelligence",
     description:
       "Advanced multilingual financial document analysis powered by AI",
     type: "website",

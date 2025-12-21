@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Sparkles, PanelRightOpen, PanelRightClose, Home } from "lucide-react";
+import Image from "next/image";
+import { PanelRightOpen, PanelRightClose, Home } from "lucide-react";
 import ChatInterface from "@/components/ChatInterface";
 import FileUpload from "@/components/FileUpload";
 import SourceSidebar from "@/components/SourceSidebar";
@@ -14,7 +15,6 @@ interface Source {
   pageNumber: number;
   excerpt?: string;
   relevanceScore?: number;
-  boundingBox?: { x: number; y: number; width: number; height: number };
 }
 
 interface ChartConfig {
@@ -60,19 +60,32 @@ export default function Dashboard() {
       <header className="px-6 py-4 border-b border-slate-800/50 glass">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link href="/" className="flex items-center gap-2 group">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+            <Link href="/" className="flex items-center gap-3 group">
+              <motion.div 
+                whileHover={{ scale: 1.05 }}
+                className="w-10 h-10 rounded-xl overflow-hidden"
+              >
+                <Image 
+                  src="/logo.png" 
+                  alt="Arthyx" 
+                  width={40} 
+                  height={40}
+                  className="w-full h-full object-cover"
+                />
+              </motion.div>
               <span className="text-xl font-bold text-white">Arthyx</span>
             </Link>
             {sessionId && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <motion.div 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20"
+              >
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-xs text-emerald-400">
                   {documents.length} document(s) loaded
                 </span>
-              </div>
+              </motion.div>
             )}
           </div>
 
