@@ -31,6 +31,64 @@ async function fetchFileFromUrl(url: string): Promise<{ buffer: Buffer; filename
   return { buffer, filename };
 }
 
+function createChunksFromText(text: string, pageCount: number): Array<{ content: string; pageNumber: number; chunkIndex: number; type: "text" | "table" | "header" }> {
+  const chunks: Array<{ content: string; pageNumber: number; chunkIndex: number; type: "text" | "table" | "header" }> = [];
+  const chunkSize = 800;
+  const overlap = 100;
+  
+  const pagePattern = /===\s*PAGE\s*(\d+)\s*===/gi;
+  const pages: Array<{ pageNumber: number; content: string }> = [];
+  
+  let lastIndex = 0;
+  let currentPageNum = 1;
+  let match;
+  
+  while ((match = pagePattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      const content = text.substring(lastIndex, match.index).trim();
+      if (content.length > 50) {
+        pages.push({ pageNumber: currentPageNum, content });
+      }
+    }
+    currentPageNum = parseInt(match[1], 10);
+    lastIndex = match.index + match[0].length;
+  }
+  
+  if (lastIndex < text.length) {
+    const content = text.substring(lastIndex).trim();
+    if (content.length > 50) {
+      pages.push({ pageNumber: currentPageNum, content });
+    }
+  }
+  
+  if (pages.length === 0 && text.length > 50) {
+    pages.push({ pageNumber: 1, content: text });
+  }
+
+  for (const page of pages) {
+    if (chunks.length >= MAX_CHUNKS_PER_FILE) break;
+    
+    const pageText = page.content;
+    let pageChunks = 0;
+    
+    for (let i = 0; i < pageText.length && pageChunks < 3 && chunks.length < MAX_CHUNKS_PER_FILE; i += chunkSize - overlap) {
+      const chunk = pageText.substring(i, i + chunkSize).trim();
+      if (chunk.length > 50) {
+        const isTable = chunk.includes("|") && chunk.includes("---");
+        chunks.push({
+          content: chunk,
+          pageNumber: page.pageNumber,
+          chunkIndex: chunks.length,
+          type: isTable ? "table" : "text",
+        });
+        pageChunks++;
+      }
+    }
+  }
+
+  return chunks;
+}
+
 export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   
@@ -45,7 +103,7 @@ export async function POST(request: NextRequest) {
         send("status", { message: "Processing request...", progress: 5 });
         
         const body = await request.json();
-        const { blobUrls, sessionId: existingSessionId } = body;
+        const { blobUrls, sessionId: existingSessionId, preExtractedText, pagesProcessed } = body;
         
         let sessionId = existingSessionId;
 
@@ -97,18 +155,40 @@ export async function POST(request: NextRequest) {
               continue;
             }
 
-            log("Processing file", { filename, size: buffer.length });
+            log("Processing file", { filename, size: buffer.length, hasPreExtracted: !!preExtractedText });
             send("status", { 
               message: `Analyzing ${filename}...`, 
               progress: Math.round(baseProgress + 10),
               currentFile: filename 
             });
 
-            const doc: ProcessedDocument = await processDocument(
-              buffer, 
-              filename,
-              (step) => send("step", { message: step, file: filename })
-            );
+            let doc: ProcessedDocument;
+            
+            if (preExtractedText && blobUrls.length === 1) {
+              log("Using pre-extracted text from parallel processing");
+              send("status", { message: "Using parallel-processed content...", progress: Math.round(baseProgress + 15) });
+              
+              const chunks = createChunksFromText(preExtractedText, pagesProcessed || 1);
+              doc = {
+                fullText: preExtractedText,
+                chunks,
+                documentType: "pdf",
+                requiresOCR: true,
+                metadata: {
+                  filename,
+                  pageCount: pagesProcessed || 1,
+                  language: "English",
+                  processingMethod: "sampled",
+                  pagesProcessed: pagesProcessed || 1
+                }
+              };
+            } else {
+              doc = await processDocument(
+                buffer, 
+                filename,
+                (step) => send("step", { message: step, file: filename })
+              );
+            }
 
             send("status", { 
               message: `Creating embeddings for ${filename}...`, 
