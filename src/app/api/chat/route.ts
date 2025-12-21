@@ -3,6 +3,7 @@ import { generateEmbeddings, generateChatResponse, generateWithoutDocuments, Cha
 import { queryDocuments } from "@/lib/pinecone";
 import { getSession, addMessage } from "@/lib/redis";
 import { getSessionGraph } from "@/lib/neo4j";
+import { extractFinancialMetrics, generateRiskReport } from "@/lib/risk-analyzer";
 
 export const maxDuration = 30;
 
@@ -93,6 +94,34 @@ export async function POST(request: NextRequest) {
       ? await generateChatResponse(history, sources, documentFilenames, true)
       : await generateWithoutDocuments(history);
 
+    let additionalRiskAnalysis = undefined;
+    let additionalMetrics = undefined;
+
+    if (hasDocuments && sources.length > 0) {
+      const combinedText = sources.map(s => s.excerpt).join("\n");
+      const financialMetrics = extractFinancialMetrics(combinedText);
+      
+      if (financialMetrics.ratios.length > 0) {
+        const entityList = result.entities?.map(e => ({ 
+          type: e.type as "company" | "regulation" | "person" | "amount" | "date" | "sector", 
+          name: e.name 
+        })) || [];
+        const riskReport = generateRiskReport(financialMetrics, entityList);
+        
+        if (!result.riskAnalysis && riskReport.factors.length > 0) {
+          additionalRiskAnalysis = riskReport;
+        }
+        
+        if (!result.metrics && financialMetrics.ratios.length > 0) {
+          additionalMetrics = financialMetrics.ratios.map(r => ({
+            name: r.name,
+            value: r.value,
+            unit: r.name.includes("Ratio") ? "" : "%",
+          }));
+        }
+      }
+    }
+
     if (sessionId) {
       const messageId = `msg_${Date.now()}`;
       
@@ -121,6 +150,8 @@ export async function POST(request: NextRequest) {
       responseLength: result.response.length,
       sourcesCount: result.citedSources.length,
       hasChart: !!result.chartConfig,
+      hasRisk: !!(result.riskAnalysis || additionalRiskAnalysis),
+      hasMetrics: !!(result.metrics || additionalMetrics),
       hasDocumentContext: result.hasDocumentContext
     });
 
@@ -134,6 +165,8 @@ export async function POST(request: NextRequest) {
         relevanceScore: s.relevanceScore,
       })),
       chartConfig: result.chartConfig,
+      riskAnalysis: result.riskAnalysis || additionalRiskAnalysis,
+      metrics: result.metrics || additionalMetrics,
       entities: result.entities,
       graphData,
       hasDocuments,

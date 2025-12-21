@@ -2,6 +2,10 @@ import { Redis } from "@upstash/redis";
 
 let redis: Redis | null = null;
 
+const log = (step: string, data?: object) => {
+  console.log(`[REDIS] ${step}`, data ? JSON.stringify(data) : "");
+};
+
 function getRedisClient(): Redis {
   if (!redis) {
     redis = new Redis({
@@ -33,6 +37,7 @@ export interface SessionData {
 }
 
 const SESSION_TTL = 24 * 60 * 60;
+const CACHE_TTL = 3600;
 
 export async function getSession(sessionId: string): Promise<SessionData | null> {
   const client = getRedisClient();
@@ -49,6 +54,7 @@ export async function createSession(sessionId: string): Promise<SessionData> {
     lastActive: Date.now(),
   };
   await client.setex(`session:${sessionId}`, SESSION_TTL, session);
+  log("Session created", { sessionId });
   return session;
 }
 
@@ -88,6 +94,7 @@ export async function addDocument(
     session.documents.push(filename);
     session.lastActive = Date.now();
     await client.setex(`session:${sessionId}`, SESSION_TTL, session);
+    log("Document added", { sessionId, filename });
   }
 }
 
@@ -103,4 +110,40 @@ export async function getConversationHistory(
 export async function deleteSession(sessionId: string): Promise<void> {
   const client = getRedisClient();
   await client.del(`session:${sessionId}`);
+  log("Session deleted", { sessionId });
+}
+
+export async function getCachedResponse(queryHash: string): Promise<string | null> {
+  const client = getRedisClient();
+  const cached = await client.get<string>(`cache:${queryHash}`);
+  if (cached) {
+    log("Cache hit", { queryHash });
+  }
+  return cached;
+}
+
+export async function setCachedResponse(queryHash: string, response: string): Promise<void> {
+  const client = getRedisClient();
+  await client.setex(`cache:${queryHash}`, CACHE_TTL, response);
+  log("Cache set", { queryHash });
+}
+
+export async function getCachedEmbedding(textHash: string): Promise<number[] | null> {
+  const client = getRedisClient();
+  return await client.get<number[]>(`embed:${textHash}`);
+}
+
+export async function setCachedEmbedding(textHash: string, embedding: number[]): Promise<void> {
+  const client = getRedisClient();
+  await client.setex(`embed:${textHash}`, CACHE_TTL * 24, embedding);
+}
+
+export function createHash(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString(36);
 }

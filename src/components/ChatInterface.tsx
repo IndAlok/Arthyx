@@ -7,6 +7,15 @@ import { cn } from "@/lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
 import SourceModal, { SourceData } from "./SourceModal";
 import ChartRenderer from "./ChartRenderer";
+import RiskDisplay from "./RiskDisplay";
+import MetricsGrid from "./MetricsGrid";
+
+interface RiskAnalysis {
+  overallRisk: "low" | "medium" | "high" | "critical";
+  riskScore: number;
+  factors: Array<{ factor: string; impact: "positive" | "negative" | "neutral"; description: string }>;
+  recommendations?: string[];
+}
 
 interface Message {
   id: string;
@@ -18,7 +27,8 @@ interface Message {
     title: string;
     data: Array<{ name: string; value: number }>;
   };
-  isEditing?: boolean;
+  riskAnalysis?: RiskAnalysis;
+  metrics?: Array<{ name: string; value: number | string; unit?: string; change?: number }>;
 }
 
 interface ChatInterfaceProps {
@@ -112,6 +122,8 @@ export default function ChatInterface({
           content: data.response,
           sources: data.sources,
           chartConfig: data.chartConfig,
+          riskAnalysis: data.riskAnalysis,
+          metrics: data.metrics,
         };
 
         setMessages([...newMessages, newUserMessage, assistantMessage]);
@@ -162,6 +174,8 @@ export default function ChatInterface({
           content: data.response,
           sources: data.sources,
           chartConfig: data.chartConfig,
+          riskAnalysis: data.riskAnalysis,
+          metrics: data.metrics,
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
@@ -185,7 +199,7 @@ export default function ChatInterface({
         {
           id: `error_${Date.now()}`,
           role: "assistant",
-          content: "**Error:** Failed to connect to the server. Please try again.",
+          content: "**Error:** Failed to connect. Please try again.",
         },
       ]);
     } finally {
@@ -218,6 +232,8 @@ export default function ChatInterface({
           content: data.response,
           sources: data.sources,
           chartConfig: data.chartConfig,
+          riskAnalysis: data.riskAnalysis,
+          metrics: data.metrics,
         };
 
         setMessages([...newMessages, assistantMessage]);
@@ -252,7 +268,7 @@ export default function ChatInterface({
           </div>
           {!sessionId && (
             <div className="px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <span className="text-xs text-emerald-400">Pre-trained SEBI/RBI Knowledge</span>
+              <span className="text-xs text-emerald-400">SEBI/RBI/Quant Knowledge</span>
             </div>
           )}
         </div>
@@ -272,16 +288,16 @@ export default function ChatInterface({
               </h3>
               <p className="text-slate-400 max-w-md text-sm mb-4">
                 {sessionId 
-                  ? "Your documents are loaded. Ask questions about their content, request analysis, or generate visualizations."
-                  : "I'm trained on SEBI regulations, RBI guidelines, quantitative finance, and Indian market knowledge. Ask me anything!"}
+                  ? "Your documents are loaded. Ask questions, request analysis, or generate visualizations."
+                  : "Trained on SEBI, RBI, quantitative finance, and Indian markets. Ask me anything."}
               </p>
               {!sessionId && (
                 <div className="flex flex-wrap gap-2 justify-center">
                   {[
                     "What is SEBI LODR?",
                     "Explain NPA classification",
-                    "Calculate VaR",
-                    "Insider trading rules"
+                    "Calculate VaR example",
+                    "Basel III requirements"
                   ].map((q) => (
                     <button
                       key={q}
@@ -303,7 +319,7 @@ export default function ChatInterface({
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="space-y-2"
+                className="space-y-3"
               >
                 <div
                   className={cn(
@@ -394,6 +410,31 @@ export default function ChatInterface({
                     )}
                   </div>
                 </div>
+
+                {message.riskAnalysis && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="ml-4"
+                  >
+                    <RiskDisplay
+                      overallRisk={message.riskAnalysis.overallRisk}
+                      riskScore={message.riskAnalysis.riskScore}
+                      factors={message.riskAnalysis.factors}
+                      recommendations={message.riskAnalysis.recommendations}
+                    />
+                  </motion.div>
+                )}
+
+                {message.metrics && message.metrics.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="ml-4"
+                  >
+                    <MetricsGrid metrics={message.metrics} />
+                  </motion.div>
+                )}
 
                 {message.chartConfig && (
                   <motion.div
