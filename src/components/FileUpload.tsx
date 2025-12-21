@@ -20,8 +20,8 @@ interface UploadedFile {
 }
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const CHUNK_SIZE = 1.5 * 1024 * 1024;
-const MAX_PARALLEL_CHUNKS = 12;
+const PAGES_PER_CHUNK = 100;
+const MAX_PARALLEL_CALLS = 6;
 
 const SUPPORTED_FORMATS = [
   { ext: "pdf", label: "PDF", color: "text-red-400" },
@@ -32,21 +32,15 @@ const SUPPORTED_FORMATS = [
   { ext: "txt", label: "Text", color: "text-slate-400" },
 ];
 
-function splitFileIntoChunks(buffer: ArrayBuffer, chunkSize: number): ArrayBuffer[] {
-  const chunks: ArrayBuffer[] = [];
-  for (let i = 0; i < buffer.byteLength; i += chunkSize) {
-    chunks.push(buffer.slice(i, Math.min(i + chunkSize, buffer.byteLength)));
-  }
-  return chunks;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+function estimatePageCount(buffer: ArrayBuffer): number {
   const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  let text = "";
+  const checkLength = Math.min(bytes.length, 50000);
+  for (let i = 0; i < checkLength; i++) {
+    text += String.fromCharCode(bytes[i]);
   }
-  return btoa(binary);
+  const matches = text.match(/\/Type\s*\/Page[^s]/g);
+  return matches ? Math.max(matches.length, Math.ceil(buffer.byteLength / 15000)) : Math.ceil(buffer.byteLength / 15000);
 }
 
 export default function FileUpload({ onUploadComplete, sessionId }: FileUploadProps) {
@@ -74,71 +68,77 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     return blob.url;
   };
 
-  const processLargePDF = async (file: File, updateStatus: (msg: string, pct: number) => void): Promise<{ text: string; pages: number }> => {
-    const buffer = await file.arrayBuffer();
-    const chunks = splitFileIntoChunks(buffer, CHUNK_SIZE);
-    const totalChunks = Math.min(chunks.length, MAX_PARALLEL_CHUNKS);
+  const processLargePDF = async (
+    file: File, 
+    blobUrl: string,
+    estimatedPages: number,
+    updateStatus: (msg: string, pct: number) => void
+  ): Promise<{ text: string; pages: number }> => {
+    const numCalls = Math.min(Math.ceil(estimatedPages / PAGES_PER_CHUNK), MAX_PARALLEL_CALLS);
+    const pageRanges: Array<{ start: number; end: number }> = [];
     
-    updateStatus(`Processing ${totalChunks} chunks in parallel...`, 15);
-    console.log(`[FileUpload] Large PDF: ${file.size} bytes, ${chunks.length} total chunks, processing ${totalChunks}`);
+    for (let i = 0; i < numCalls; i++) {
+      const start = i * PAGES_PER_CHUNK + 1;
+      const end = Math.min((i + 1) * PAGES_PER_CHUNK, estimatedPages);
+      pageRanges.push({ start, end });
+    }
+
+    console.log(`[FileUpload] Processing ${estimatedPages} pages in ${pageRanges.length} parallel calls`);
+    updateStatus(`Processing ${estimatedPages} pages in ${pageRanges.length} parallel calls...`, 20);
 
     const results = await Promise.allSettled(
-      chunks.slice(0, MAX_PARALLEL_CHUNKS).map(async (chunk, index) => {
-        const base64 = arrayBufferToBase64(chunk);
-        console.log(`[FileUpload] Sending chunk ${index + 1}/${totalChunks}, size: ${base64.length}`);
+      pageRanges.map(async (range, index) => {
+        console.log(`[FileUpload] Requesting pages ${range.start}-${range.end}`);
         
         const response = await fetch("/api/process-chunk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            base64Data: base64,
+            blobUrl,
             filename: file.name,
-            chunkIndex: index,
-            totalChunks,
-            mimeType: "application/pdf",
+            startPage: range.start,
+            endPage: range.end,
+            totalPages: estimatedPages,
           }),
         });
 
         if (!response.ok) {
-          console.error(`[FileUpload] Chunk ${index + 1} failed: ${response.status}`);
-          throw new Error(`Chunk ${index + 1} failed`);
+          const errorText = await response.text();
+          console.error(`[FileUpload] Range ${range.start}-${range.end} failed:`, errorText);
+          throw new Error(`Pages ${range.start}-${range.end} failed`);
         }
 
         const data = await response.json();
-        console.log(`[FileUpload] Chunk ${index + 1} complete, text length: ${data.text?.length || 0}`);
-        updateStatus(`Chunk ${index + 1}/${totalChunks} complete`, 15 + ((index + 1) / totalChunks) * 55);
+        console.log(`[FileUpload] Pages ${range.start}-${range.end} complete, text: ${data.text?.length || 0} chars`);
+        updateStatus(`Pages ${range.start}-${range.end} complete`, 20 + ((index + 1) / pageRanges.length) * 55);
         return data;
       })
     );
 
     let combinedText = "";
-    let totalPages = 0;
     let successCount = 0;
 
     results.forEach((result, index) => {
       if (result.status === "fulfilled" && result.value.success) {
-        combinedText += `\n\n=== SECTION ${index + 1} ===\n\n${result.value.text}`;
-        totalPages += result.value.pages || 1;
+        const range = pageRanges[index];
+        combinedText += `\n\n=== PAGES ${range.start}-${range.end} ===\n\n${result.value.text}`;
         successCount++;
-      } else {
-        console.error(`[FileUpload] Chunk ${index + 1} result:`, result.status === "rejected" ? result.reason : "no success");
+      } else if (result.status === "rejected") {
+        console.error(`[FileUpload] Range ${index} failed:`, result.reason);
       }
     });
 
-    console.log(`[FileUpload] Parallel processing complete: ${successCount}/${totalChunks} chunks, ${combinedText.length} chars`);
-    updateStatus(`Extracted from ${successCount} chunks`, 75);
+    console.log(`[FileUpload] Completed: ${successCount}/${pageRanges.length} ranges, ${combinedText.length} chars`);
+    updateStatus(`Extracted from ${successCount} page ranges`, 80);
 
     if (combinedText.length < 100) {
-      throw new Error("No text extracted from document");
+      throw new Error(`Only ${successCount}/${pageRanges.length} page ranges succeeded. Try with a smaller file.`);
     }
 
-    return { text: combinedText, pages: totalPages || totalChunks };
+    return { text: combinedText, pages: estimatedPages };
   };
 
-  const processSmallFile = async (file: File, updateStatus: (msg: string, pct: number) => void): Promise<string> => {
-    updateStatus(`Uploading ${file.name}...`, 20);
-    const blobUrl = await uploadToBlob(file);
-    
+  const processSmallFile = async (file: File, blobUrl: string, updateStatus: (msg: string, pct: number) => void): Promise<string> => {
     updateStatus("Processing with AI...", 40);
     
     const response = await fetch("/api/upload", {
@@ -180,18 +180,17 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
 
     processingRef.current = true;
     setIsProcessing(true);
-    setStatusMessage("Analyzing...");
+    setStatusMessage("Starting...");
     setOverallProgress(5);
 
     try {
       for (const uploadedFile of pending) {
         const file = uploadedFile.file;
         const isPDF = file.name.toLowerCase().endsWith(".pdf");
-        const isLarge = file.size > CHUNK_SIZE;
 
         setFiles(prev => {
           const updated = new Map(prev);
-          updated.set(file.name, { ...uploadedFile, status: "processing", progress: 10, message: "Analyzing..." });
+          updated.set(file.name, { ...uploadedFile, status: "processing", progress: 10, message: "Uploading..." });
           return updated;
         });
 
@@ -206,12 +205,22 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
         };
 
         try {
-          if (isPDF && isLarge) {
-            updateStatus(`Large PDF (${(file.size / 1024 / 1024).toFixed(1)}MB) - parallel processing...`, 10);
+          updateStatus(`Uploading ${file.name}...`, 10);
+          const blobUrl = await uploadToBlob(file);
+          console.log(`[FileUpload] Uploaded to blob: ${blobUrl}`);
+
+          const buffer = await file.arrayBuffer();
+          const estimatedPages = estimatePageCount(buffer);
+          const isLarge = isPDF && estimatedPages > 50;
+
+          console.log(`[FileUpload] File: ${file.name}, ${file.size} bytes, ~${estimatedPages} pages, isLarge: ${isLarge}`);
+
+          if (isLarge) {
+            updateStatus(`Large PDF (~${estimatedPages} pages) - parallel extraction...`, 15);
             
-            const { text, pages } = await processLargePDF(file, updateStatus);
+            const { text, pages } = await processLargePDF(file, blobUrl, estimatedPages, updateStatus);
             
-            updateStatus("Creating search index...", 80);
+            updateStatus("Creating search index...", 85);
             
             const indexResponse = await fetch("/api/index", {
               method: "POST",
@@ -225,7 +234,8 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
             });
 
             if (!indexResponse.ok) {
-              throw new Error(`Indexing failed: ${indexResponse.status}`);
+              const errorText = await indexResponse.text();
+              throw new Error(`Indexing failed: ${errorText}`);
             }
 
             const indexData = await indexResponse.json();
@@ -240,12 +250,12 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
                 status: "complete", 
                 progress: 100, 
                 pages,
-                message: `${pages} pages, ${indexData.chunks} chunks indexed` 
+                message: `${pages} pages, ${indexData.chunks} chunks` 
               });
               return updated;
             });
           } else {
-            const newSessionId = await processSmallFile(file, updateStatus);
+            const newSessionId = await processSmallFile(file, blobUrl, updateStatus);
             if (newSessionId) {
               onUploadComplete(newSessionId, [file.name]);
             }
@@ -320,7 +330,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
         />
         <Upload className={cn("w-10 h-10 mx-auto mb-3", isDragging ? "text-emerald-400" : "text-slate-500")} />
         <p className="text-white font-medium mb-1">Drop files here or click to browse</p>
-        <p className="text-sm text-slate-400 mb-3">Up to 50MB - Parallel AI processing for large PDFs</p>
+        <p className="text-sm text-slate-400 mb-3">Up to 50MB - Parallel page extraction for large PDFs</p>
         <div className="flex flex-wrap gap-2 justify-center">
           {SUPPORTED_FORMATS.map((f) => (
             <span key={f.ext} className={cn("text-xs px-2 py-0.5 rounded bg-slate-800", f.color)}>{f.label}</span>
