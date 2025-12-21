@@ -3,19 +3,20 @@ import { processDocument, ProcessedDocument } from "@/lib/document-processor";
 import { generateEmbeddings } from "@/lib/gemini";
 import { upsertDocumentChunks, DocumentChunk } from "@/lib/pinecone";
 import { createSession, addDocument, getSession } from "@/lib/redis";
+import { extractEntitiesFromText } from "@/lib/neo4j";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 4 * 1024 * 1024;
-const MAX_CHUNKS_PER_FILE = 20;
+const MAX_CHUNKS_PER_FILE = 25;
 
 const log = (step: string, data?: object) => {
   console.log(`[UPLOAD] ${step}`, data ? JSON.stringify(data) : "");
 };
 
 const SUPPORTED_EXTENSIONS = [
-  "pdf", "png", "jpg", "jpeg", "webp",
+  "pdf", "png", "jpg", "jpeg", "webp", "tiff",
   "doc", "docx", "xls", "xlsx", "csv",
   "txt", "md", "json", "xml", "html"
 ];
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
           documentType: string;
           chunks: number;
           pages: number;
+          language?: string;
           success: boolean;
         }> = [];
 
@@ -108,7 +110,7 @@ export async function POST(request: NextRequest) {
 
             send("status", { 
               message: `Creating embeddings for ${file.name}...`, 
-              progress: Math.round(baseProgress + 25) 
+              progress: Math.round(baseProgress + 20) 
             });
 
             const limitedChunks = doc.chunks.slice(0, MAX_CHUNKS_PER_FILE);
@@ -130,11 +132,23 @@ export async function POST(request: NextRequest) {
               
               send("status", { 
                 message: `Indexing ${file.name}...`, 
-                progress: Math.round(baseProgress + 35) 
+                progress: Math.round(baseProgress + 30) 
               });
               
               log("Upserting vectors", { sessionId });
               await upsertDocumentChunks(documentChunks, embeddings, sessionId);
+            }
+
+            send("status", { 
+              message: `Building knowledge graph for ${file.name}...`, 
+              progress: Math.round(baseProgress + 35) 
+            });
+            
+            try {
+              await extractEntitiesFromText(doc.fullText.substring(0, 5000), sessionId);
+              log("Entities extracted for knowledge graph");
+            } catch (kgError) {
+              log("Knowledge graph extraction skipped", { error: String(kgError) });
             }
 
             await addDocument(sessionId, file.name);
@@ -144,15 +158,22 @@ export async function POST(request: NextRequest) {
               documentType: doc.documentType,
               chunks: documentChunks.length,
               pages: doc.metadata.pageCount,
+              language: doc.metadata.language,
               success: true,
             });
 
-            log("File processed", { filename: file.name, chunks: documentChunks.length });
+            log("File processed", { 
+              filename: file.name, 
+              chunks: documentChunks.length,
+              pages: doc.metadata.pageCount 
+            });
+            
             send("file_complete", { 
               filename: file.name, 
               documentType: doc.documentType,
               chunks: documentChunks.length,
-              pages: doc.metadata.pageCount
+              pages: doc.metadata.pageCount,
+              language: doc.metadata.language
             });
 
           } catch (error) {

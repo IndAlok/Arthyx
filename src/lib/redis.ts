@@ -13,9 +13,11 @@ function getRedisClient(): Redis {
 }
 
 export interface ConversationMessage {
+  id?: string;
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+  isEdit?: boolean;
   sources?: Array<{
     filename: string;
     pageNumber: number;

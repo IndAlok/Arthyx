@@ -12,6 +12,8 @@ export interface ProcessedDocument {
   metadata: {
     filename: string;
     pageCount: number;
+    language?: string;
+    processingMethod: "text_extraction" | "ocr" | "hybrid";
   };
 }
 
@@ -19,6 +21,7 @@ export interface DocumentChunk {
   content: string;
   pageNumber: number;
   chunkIndex: number;
+  type: "text" | "table" | "header";
 }
 
 const log = (step: string, data?: object) => {
@@ -28,7 +31,7 @@ const log = (step: string, data?: object) => {
 function detectDocumentType(filename: string): DocumentType {
   const ext = filename.toLowerCase().split(".").pop() || "";
   
-  const imageExtensions = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+  const imageExtensions = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff"];
   const wordExtensions = ["doc", "docx"];
   const excelExtensions = ["xls", "xlsx", "csv"];
   const textExtensions = ["txt", "md", "json", "xml", "html", "css", "js", "ts"];
@@ -54,7 +57,7 @@ async function extractTextFromWord(buffer: Buffer): Promise<string> {
   }
 }
 
-function extractTextFromExcel(buffer: Buffer): string {
+function extractTextFromExcel(buffer: Buffer): { text: string; sheets: number } {
   log("Extracting text from Excel document");
   try {
     const workbook = XLSX.read(buffer, { type: "buffer" });
@@ -64,19 +67,23 @@ function extractTextFromExcel(buffer: Buffer): string {
       const sheet = workbook.Sheets[sheetName];
       const jsonData = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
       
-      fullText += `\n[Sheet: ${sheetName}]\n`;
-      for (const row of jsonData) {
-        if (row && row.length > 0) {
-          fullText += (row || []).map(String).join(" | ") + "\n";
+      fullText += `\n## Sheet: ${sheetName}\n`;
+      if (jsonData.length > 0) {
+        const headers = jsonData[0] || [];
+        fullText += "| " + headers.map(String).join(" | ") + " |\n";
+        fullText += "| " + headers.map(() => "---").join(" | ") + " |\n";
+        for (let i = 1; i < jsonData.length; i++) {
+          const row = jsonData[i] || [];
+          fullText += "| " + row.map(String).join(" | ") + " |\n";
         }
       }
     }
 
-    log("Excel extraction complete", { length: fullText.length });
-    return fullText;
+    log("Excel extraction complete", { length: fullText.length, sheets: workbook.SheetNames.length });
+    return { text: fullText, sheets: workbook.SheetNames.length };
   } catch (error) {
     log("Excel extraction error", { error: String(error) });
-    return "";
+    return { text: "", sheets: 0 };
   }
 }
 
@@ -86,36 +93,50 @@ function extractTextFromPlainText(buffer: Buffer): string {
   return text;
 }
 
-async function analyzeDocumentWithAI(
-  buffer: Buffer, 
+async function analyzeDocumentWithVision(
+  buffer: Buffer,
   mimeType: string,
   filename: string,
   onProgress?: (step: string) => void
-): Promise<{ text: string; pageCount: number; usedOCR: boolean }> {
-  log("Starting AI document analysis", { filename, mimeType });
+): Promise<{ text: string; pageCount: number; language: string }> {
+  log("Starting Vision API analysis", { filename, mimeType, bufferSize: buffer.length });
   
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
   const base64Data = buffer.toString("base64");
 
-  const prompt = `You are a document analysis expert. Analyze this document completely and extract ALL text content.
+  const prompt = `You are an expert document analyzer. Analyze this document with EXTREME precision.
 
 CRITICAL INSTRUCTIONS:
-1. Extract text from EVERY page of the document
-2. For multi-page documents, clearly mark page breaks as: [PAGE 1], [PAGE 2], etc.
-3. Preserve table structures using markdown tables
-4. Be extremely precise with all numbers, currencies (₹, $), percentages, and dates
-5. Extract ALL financial data: amounts, account numbers, ratios, etc.
-6. For Indian language text (Hindi, Tamil, Bengali, Gujarati), extract with proper Unicode
+1. First, count the EXACT number of pages in this document. Report as: [TOTAL_PAGES: X]
+2. For EACH page, mark with: === PAGE X ===
+3. Extract ALL text from EVERY page completely
+4. Preserve table structures using markdown tables
+5. For Indian languages (Hindi, Tamil, Bengali, Gujarati, Telugu, Marathi, Kannada, Malayalam), extract with proper Unicode
+6. Be EXTREMELY precise with:
+   - All numbers, amounts, and percentages
+   - Dates and time periods
+   - Company names and entity names
+   - Regulatory references (SEBI, RBI circulars)
+   - Account numbers and financial identifiers
+7. Detect the primary language(s): [LANGUAGE: detected_language]
 
-At the start, indicate: [PAGES: X] where X is the total page count
+OUTPUT FORMAT:
+[TOTAL_PAGES: X]
+[LANGUAGE: detected_language]
 
-Then provide the complete extracted text with page markers.`;
+=== PAGE 1 ===
+[Complete content of page 1]
+
+=== PAGE 2 ===
+[Complete content of page 2]
+
+... and so on for all pages`;
 
   try {
     const startTime = Date.now();
-    onProgress?.("Analyzing document with AI...");
+    onProgress?.("Analyzing document structure...");
     
     const result = await model.generateContent([
       prompt,
@@ -129,82 +150,104 @@ Then provide the complete extracted text with page markers.`;
 
     const response = result.response.text();
     
-    const pageMatch = response.match(/\[PAGES:\s*(\d+)\]/);
-    const pageCount = pageMatch ? parseInt(pageMatch[1], 10) : 1;
+    const pageCountMatch = response.match(/\[TOTAL_PAGES:\s*(\d+)\]/);
+    const pageCount = pageCountMatch ? parseInt(pageCountMatch[1], 10) : 1;
+    
+    const languageMatch = response.match(/\[LANGUAGE:\s*([^\]]+)\]/);
+    const language = languageMatch ? languageMatch[1].trim() : "English";
     
     const text = response
-      .replace(/\[PAGES:\s*\d+\]/g, "")
+      .replace(/\[TOTAL_PAGES:\s*\d+\]/g, "")
+      .replace(/\[LANGUAGE:\s*[^\]]+\]/g, "")
       .trim();
 
-    log("Document analysis complete", { 
+    log("Vision analysis complete", { 
       filename, 
       duration: Date.now() - startTime,
       textLength: text.length,
-      pageCount 
+      pageCount,
+      language
     });
 
-    onProgress?.(`Extracted ${pageCount} page(s)`);
+    onProgress?.(`Processed ${pageCount} page(s) in ${language}`);
     
-    return { text, pageCount, usedOCR: true };
+    return { text, pageCount, language };
   } catch (error) {
-    log("Document analysis error", { error: String(error), filename });
+    log("Vision analysis error", { error: String(error), filename });
     throw error;
   }
 }
 
-function createSmartChunks(text: string, pageCount: number, maxChunks: number = 20): DocumentChunk[] {
-  log("Creating smart chunks", { textLength: text.length, pageCount, maxChunks });
+function createSmartChunks(
+  text: string, 
+  pageCount: number, 
+  maxChunksPerPage: number = 5
+): DocumentChunk[] {
+  log("Creating smart chunks", { textLength: text.length, pageCount, maxChunksPerPage });
   
   const chunks: DocumentChunk[] = [];
   
-  const pagePattern = /\[PAGE\s*(\d+)\]/gi;
+  const pagePattern = /===\s*PAGE\s*(\d+)\s*===/gi;
   const pages: Array<{ pageNumber: number; content: string }> = [];
   
   let lastIndex = 0;
-  let lastPage = 1;
+  let currentPageNum = 1;
   let match;
   
   while ((match = pagePattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
       const content = text.substring(lastIndex, match.index).trim();
       if (content.length > 50) {
-        pages.push({ pageNumber: lastPage, content });
+        pages.push({ pageNumber: currentPageNum, content });
       }
     }
-    lastPage = parseInt(match[1], 10);
+    currentPageNum = parseInt(match[1], 10);
     lastIndex = match.index + match[0].length;
   }
   
   if (lastIndex < text.length) {
     const content = text.substring(lastIndex).trim();
     if (content.length > 50) {
-      pages.push({ pageNumber: lastPage, content });
+      pages.push({ pageNumber: currentPageNum, content });
     }
   }
   
-  if (pages.length === 0) {
+  if (pages.length === 0 && text.length > 50) {
     pages.push({ pageNumber: 1, content: text });
   }
-  
+
+  log("Detected pages", { count: pages.length, pageNumbers: pages.map(p => p.pageNumber) });
+
   const chunkSize = 600;
   const overlap = 100;
   
   for (const page of pages) {
     const pageText = page.content;
+    let pageChunks = 0;
     
-    for (let i = 0; i < pageText.length && chunks.length < maxChunks; i += chunkSize - overlap) {
+    for (let i = 0; i < pageText.length && pageChunks < maxChunksPerPage; i += chunkSize - overlap) {
       const chunk = pageText.substring(i, i + chunkSize).trim();
       if (chunk.length > 50) {
+        const isTable = chunk.includes("|") && chunk.includes("---");
+        const isHeader = /^#+\s/.test(chunk) || /^[A-Z][A-Z\s]+$/.test(chunk.split("\n")[0]);
+        
         chunks.push({
           content: chunk,
           pageNumber: page.pageNumber,
           chunkIndex: chunks.length,
+          type: isTable ? "table" : isHeader ? "header" : "text",
         });
+        pageChunks++;
       }
     }
   }
 
-  log("Smart chunks created", { count: chunks.length, pages: pages.length });
+  log("Smart chunks created", { 
+    totalChunks: chunks.length, 
+    pagesProcessed: pages.length,
+    chunksByPage: pages.map(p => chunks.filter(c => c.pageNumber === p.pageNumber).length)
+  });
+  
   return chunks;
 }
 
@@ -221,6 +264,8 @@ export async function processDocument(
   let fullText = "";
   let requiresOCR = false;
   let pageCount = 1;
+  let language = "English";
+  let processingMethod: "text_extraction" | "ocr" | "hybrid" = "text_extraction";
 
   switch (documentType) {
     case "text":
@@ -235,29 +280,24 @@ export async function processDocument(
 
     case "excel":
       onProgress?.("Processing spreadsheet data...");
-      fullText = extractTextFromExcel(buffer);
+      const excelResult = extractTextFromExcel(buffer);
+      fullText = excelResult.text;
+      pageCount = excelResult.sheets;
       break;
 
     case "pdf":
-      onProgress?.("Analyzing PDF document...");
-      const pdfResult = await analyzeDocumentWithAI(
-        buffer, 
-        "application/pdf", 
-        filename, 
-        onProgress
-      );
-      fullText = pdfResult.text;
-      pageCount = pdfResult.pageCount;
-      requiresOCR = pdfResult.usedOCR;
-      break;
-
     case "image":
       requiresOCR = true;
-      onProgress?.("Extracting text from image...");
-      const mimeType = filename.toLowerCase().endsWith(".png") ? "image/png" :
+      processingMethod = "ocr";
+      onProgress?.("Analyzing with AI vision...");
+      const mimeType = documentType === "pdf" ? "application/pdf" : 
+        filename.toLowerCase().endsWith(".png") ? "image/png" :
         filename.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
-      const imgResult = await analyzeDocumentWithAI(buffer, mimeType, filename, onProgress);
-      fullText = imgResult.text;
+      
+      const result = await analyzeDocumentWithVision(buffer, mimeType, filename, onProgress);
+      fullText = result.text;
+      pageCount = result.pageCount;
+      language = result.language;
       break;
 
     default:
@@ -274,7 +314,8 @@ export async function processDocument(
     requiresOCR,
     textLength: fullText.length,
     pageCount,
-    chunkCount: chunks.length 
+    chunkCount: chunks.length,
+    language
   });
 
   return {
@@ -282,6 +323,11 @@ export async function processDocument(
     chunks,
     documentType,
     requiresOCR,
-    metadata: { filename, pageCount },
+    metadata: { 
+      filename, 
+      pageCount,
+      language,
+      processingMethod
+    },
   };
 }

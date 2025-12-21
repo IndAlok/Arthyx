@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
+import { getRelevantKnowledge, FULL_KNOWLEDGE_BASE } from "./knowledge-base";
 
 let genAI: GoogleGenerativeAI | null = null;
 
@@ -65,72 +66,101 @@ export interface ChatResponse {
   response: string;
   citedSources: SourceContext[];
   chartConfig?: {
-    type: "bar" | "line" | "pie" | "area";
+    type: "bar" | "line" | "pie" | "area" | "scatter";
     title: string;
-    data: Array<{ name: string; value: number }>;
+    data: Array<{ name: string; value: number; [key: string]: string | number }>;
   };
+  entities?: Array<{ name: string; type: string }>;
+  hasDocumentContext: boolean;
 }
+
+const SYSTEM_PROMPT = `You are **Arthyx**, an advanced financial analysis assistant specialized in Indian markets, regulations, and quantitative finance.
+
+## Your Expertise
+You are comprehensively trained on:
+- **SEBI regulations**: LODR, Insider Trading, Takeover Code, AIF regulations, IPO/FPO norms
+- **RBI guidelines**: Banking regulation, FEMA, NPA classification, Basel III norms, priority sector lending
+- **Quantitative Finance**: VaR, Greeks, Black-Scholes, risk metrics, algorithmic trading
+- **Indian Markets**: NSE/BSE, Nifty 50, F&O, circuit breakers, settlement cycles
+- **Financial Terminology**: CASA, NIM, GNPA, PCR, FII/DII flows, and more
+
+## Response Guidelines
+
+### Formatting (ALWAYS use rich Markdown):
+- Use **bold** for key terms, numbers, and emphasis
+- Use ## and ### headers to organize complex responses
+- Use bullet points and numbered lists for clarity
+- Use markdown tables for comparative data
+- Use \`code\` for specific values, ratios, and identifiers
+
+### Citations:
+- When referencing uploaded documents: **[Source: filename, Page X]**
+- When using pre-trained knowledge: **[Reference: SEBI/RBI/Regulatory Knowledge]**
+
+### Visualization:
+When data warrants visual representation, include a chart:
+\`\`\`chart
+{"type": "bar", "title": "Chart Title", "data": [{"name": "Label", "value": 123}]}
+\`\`\`
+
+Supported types: bar, line, pie, area, scatter
+
+### Without Documents:
+Even without uploaded documents, answer questions about:
+- Regulatory frameworks (SEBI, RBI, IRDAI, PFRDA)
+- Financial concepts and calculations
+- Market mechanics and trading
+- Indian financial terminology
+- Quantitative methods and risk metrics
+
+Be helpful, accurate, and always cite your knowledge source.`;
 
 export async function generateChatResponse(
   messages: ChatMessage[],
   sources: SourceContext[],
-  documentFilenames: string[]
+  documentFilenames: string[],
+  hasDocuments: boolean
 ): Promise<ChatResponse> {
   log("Generating chat response", { 
     messageCount: messages.length,
     sourceCount: sources.length,
-    documents: documentFilenames 
+    hasDocuments 
   });
   
   const model = getChatModel();
   const startTime = Date.now();
+  
+  const lastMessage = messages[messages.length - 1]?.content || "";
+  const relevantKnowledge = getRelevantKnowledge(lastMessage);
 
-  const systemPrompt = `You are **Arthyx**, an advanced financial document analysis assistant specialized in Indian financial data, regulations, and multi-language documents.
-
-## Your Capabilities
-- Analyze financial documents in multiple languages (English, Hindi, Tamil, Bengali, Gujarati)
-- Extract financial metrics, ratios, trends, and insights
-- Generate visualizations when data warrants visual representation
-- Cross-reference information across uploaded documents
-
-## Response Format
-**ALWAYS use rich Markdown formatting:**
-- Use **bold** for key terms and numbers
-- Use headers (##, ###) to organize complex responses
-- Use bullet points and numbered lists
-- Use tables for comparative data
-- Use \`code\` formatting for specific values
-
-## Documents Currently Available
+  let contextSection = "";
+  
+  if (sources.length > 0) {
+    contextSection = `
+## Uploaded Documents
 ${documentFilenames.map((f, i) => `${i + 1}. ${f}`).join("\n")}
 
-## Citation Rules
-1. When referencing document content, use format: **[Source: filename, Page X]**
-2. Be specific about which document and page the information comes from
-3. If information is NOT in the provided documents, clearly state: "This information is not available in the uploaded documents."
-
-## Visualization Rules
-When the query asks for visualization or when data naturally suits visual representation, include a JSON chart configuration:
-\`\`\`chart
-{"type": "bar|line|pie|area", "title": "Chart Title", "data": [{"name": "Label", "value": 123}]}
-\`\`\`
-
-## Context from Documents
+## Relevant Document Excerpts
 ${sources.map((s, i) => `
-### Source ${i + 1}: ${s.filename} (Page ${s.pageNumber}) [${(s.relevanceScore * 100).toFixed(0)}% relevant]
+### [${s.filename}, Page ${s.pageNumber}] (${(s.relevanceScore * 100).toFixed(0)}% relevant)
 ${s.excerpt}
 `).join("\n---\n")}`;
+  }
 
-  const conversationHistory = messages.map((m) => 
-    `**${m.role === "user" ? "User" : "Arthyx"}:** ${m.content}`
-  ).join("\n\n");
+  const knowledgeSection = `
+## Pre-trained Financial Knowledge
+${relevantKnowledge}`;
 
-  const fullPrompt = `${systemPrompt}
+  const fullPrompt = `${SYSTEM_PROMPT}
+
+${contextSection}
+
+${knowledgeSection}
 
 ## Conversation
-${conversationHistory}
+${messages.map((m) => `**${m.role === "user" ? "User" : "Arthyx"}:** ${m.content}`).join("\n\n")}
 
-Provide a comprehensive, well-formatted response using Markdown. Include relevant visualizations if appropriate.`;
+Provide a comprehensive, well-formatted response. ${hasDocuments ? "Reference the uploaded documents where relevant." : "Use your pre-trained financial knowledge to answer."}`;
 
   try {
     const result = await model.generateContent(fullPrompt);
@@ -183,13 +213,35 @@ Provide a comprehensive, well-formatted response using Markdown. Include relevan
       citedSources.push(...sources.slice(0, 3));
     }
 
+    const entityTypes = ["company", "regulation", "amount"];
+    const entities: Array<{ name: string; type: string }> = [];
+    
+    const companyMatches = responseText.match(/\b(HDFC|ICICI|SBI|Reliance|Tata|Infosys|TCS|Wipro)\b/gi);
+    if (companyMatches) {
+      companyMatches.forEach(m => entities.push({ name: m, type: "company" }));
+    }
+    
+    const regMatches = responseText.match(/SEBI[\s\/\-]?(?:circular|guideline)?\s*\d{4}(?:\/\d+)?|RBI[\s\/\-]?(?:circular)?\s*\d{4}/gi);
+    if (regMatches) {
+      regMatches.forEach(m => entities.push({ name: m, type: "regulation" }));
+    }
+
     return {
       response: cleanedResponse,
       citedSources,
       chartConfig,
+      entities: entities.slice(0, 10),
+      hasDocumentContext: sources.length > 0,
     };
   } catch (error) {
     log("Chat error", { error: String(error) });
     throw error;
   }
+}
+
+export async function generateWithoutDocuments(
+  messages: ChatMessage[]
+): Promise<ChatResponse> {
+  log("Generating response without documents");
+  return generateChatResponse(messages, [], [], false);
 }

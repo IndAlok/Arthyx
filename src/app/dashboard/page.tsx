@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
-import { PanelRightOpen, PanelRightClose, Home } from "lucide-react";
+import { PanelRightOpen, PanelRightClose, Home, Upload, FileText } from "lucide-react";
 import ChatInterface from "@/components/ChatInterface";
 import FileUpload from "@/components/FileUpload";
 import SourceSidebar from "@/components/SourceSidebar";
@@ -18,7 +18,7 @@ interface Source {
 }
 
 interface ChartConfig {
-  type: "bar" | "line" | "pie" | "area";
+  type: "bar" | "line" | "pie" | "area" | "scatter";
   title: string;
   data: Array<{ name: string; value: number }>;
 }
@@ -29,10 +29,12 @@ export default function Dashboard() {
   const [sources, setSources] = useState<Source[]>([]);
   const [chartConfig, setChartConfig] = useState<ChartConfig | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showUpload, setShowUpload] = useState(false);
 
   const handleUploadComplete = (newSessionId: string, files: string[]) => {
     setSessionId(newSessionId);
     setDocuments((prev) => [...new Set([...prev, ...files])]);
+    setShowUpload(false);
   };
 
   const handleSourceClick = (source: { filename: string; pageNumber: number; excerpt?: string }) => {
@@ -75,6 +77,7 @@ export default function Dashboard() {
               </motion.div>
               <span className="text-xl font-bold text-white">Arthyx</span>
             </Link>
+            
             {sessionId && (
               <motion.div 
                 initial={{ opacity: 0, x: -10 }}
@@ -87,9 +90,30 @@ export default function Dashboard() {
                 </span>
               </motion.div>
             )}
+
+            {!sessionId && (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                <span className="text-xs text-slate-400">
+                  Knowledge Mode (No docs required)
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
+            {sessionId && (
+              <button
+                onClick={() => setShowUpload(!showUpload)}
+                className={`p-2 rounded-lg transition-colors ${
+                  showUpload 
+                    ? "bg-emerald-500/20 text-emerald-400" 
+                    : "hover:bg-slate-800/50 text-slate-400"
+                }`}
+                title="Upload more documents"
+              >
+                <Upload className="w-5 h-5" />
+              </button>
+            )}
             <Link
               href="/"
               className="p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
@@ -118,12 +142,37 @@ export default function Dashboard() {
             layout
             className="flex-1 flex flex-col gap-4 min-w-0"
           >
-            {!sessionId && (
+            {(!sessionId || showUpload) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="glass rounded-2xl p-6"
               >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center">
+                      <FileText className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-white">
+                        {sessionId ? "Add More Documents" : "Upload Documents (Optional)"}
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        {sessionId 
+                          ? "Add more files to your current session"
+                          : "Or start chatting immediately with our pre-trained knowledge"}
+                      </p>
+                    </div>
+                  </div>
+                  {showUpload && (
+                    <button
+                      onClick={() => setShowUpload(false)}
+                      className="text-sm text-slate-400 hover:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
                 <FileUpload
                   onUploadComplete={handleUploadComplete}
                   sessionId={sessionId}
@@ -133,7 +182,7 @@ export default function Dashboard() {
 
             <motion.div
               layout
-              className={`flex-1 min-h-[400px] ${sessionId ? "" : "opacity-50 pointer-events-none"}`}
+              className="flex-1 min-h-[400px]"
             >
               <ChatInterface
                 sessionId={sessionId}
@@ -145,25 +194,12 @@ export default function Dashboard() {
             {chartConfig && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
+                animate={{ opacity: 1, y: 0 satisfies number }}
               >
                 <ChartRenderer config={chartConfig} />
               </motion.div>
             )}
           </motion.div>
-
-          {sessionId && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="lg:hidden glass rounded-2xl p-4"
-            >
-              <FileUpload
-                onUploadComplete={handleUploadComplete}
-                sessionId={sessionId}
-              />
-            </motion.div>
-          )}
         </div>
 
         <SourceSidebar
