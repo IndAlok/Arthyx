@@ -8,8 +8,8 @@ import { extractEntitiesFromText } from "@/lib/neo4j";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 4 * 1024 * 1024;
-const MAX_CHUNKS_PER_FILE = 25;
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_CHUNKS_PER_FILE = 30;
 
 const log = (step: string, data?: object) => {
   console.log(`[UPLOAD] ${step}`, data ? JSON.stringify(data) : "");
@@ -20,6 +20,16 @@ const SUPPORTED_EXTENSIONS = [
   "doc", "docx", "xls", "xlsx", "csv",
   "txt", "md", "json", "xml", "html"
 ];
+
+async function fetchFileFromUrl(url: string): Promise<{ buffer: Buffer; filename: string }> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.status}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const filename = url.split("/").pop()?.split("?")[0] || "document";
+  return { buffer, filename };
+}
 
 export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
@@ -32,39 +42,20 @@ export async function POST(request: NextRequest) {
 
       try {
         log("Upload started");
-        send("status", { message: "Receiving files...", progress: 5 });
+        send("status", { message: "Processing request...", progress: 5 });
         
-        const formData = await request.formData();
-        const files = formData.getAll("files") as File[];
-        let sessionId = formData.get("sessionId") as string | null;
+        const body = await request.json();
+        const { blobUrls, sessionId: existingSessionId } = body;
+        
+        let sessionId = existingSessionId;
 
-        if (!files || files.length === 0) {
-          send("error", { message: "No files provided" });
+        if (!blobUrls || !Array.isArray(blobUrls) || blobUrls.length === 0) {
+          send("error", { message: "No file URLs provided" });
           controller.close();
           return;
         }
 
-        log("Files received", { count: files.length });
-
-        const validFiles: File[] = [];
-        for (const file of files) {
-          const ext = file.name.toLowerCase().split(".").pop() || "";
-          if (!SUPPORTED_EXTENSIONS.includes(ext)) {
-            send("warning", { message: `Skipping ${file.name}: unsupported format` });
-            continue;
-          }
-          if (file.size > MAX_FILE_SIZE) {
-            send("warning", { message: `Skipping ${file.name}: too large (max 4MB)` });
-            continue;
-          }
-          validFiles.push(file);
-        }
-
-        if (validFiles.length === 0) {
-          send("error", { message: "No valid files to process" });
-          controller.close();
-          return;
-        }
+        log("Blob URLs received", { count: blobUrls.length });
 
         if (!sessionId) {
           sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
@@ -88,73 +79,95 @@ export async function POST(request: NextRequest) {
           success: boolean;
         }> = [];
 
-        for (let i = 0; i < validFiles.length; i++) {
-          const file = validFiles[i];
-          const baseProgress = 10 + ((i / validFiles.length) * 80);
+        for (let i = 0; i < blobUrls.length; i++) {
+          const blobUrl = blobUrls[i];
+          const baseProgress = 10 + ((i / blobUrls.length) * 80);
           
           try {
-            log("Processing file", { filename: file.name, index: i });
             send("status", { 
-              message: `Analyzing ${file.name}...`, 
+              message: `Downloading file ${i + 1}...`, 
               progress: Math.round(baseProgress),
-              currentFile: file.name 
             });
 
-            const buffer = Buffer.from(await file.arrayBuffer());
+            const { buffer, filename } = await fetchFileFromUrl(blobUrl.url);
             
+            const ext = filename.toLowerCase().split(".").pop() || "";
+            if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+              send("warning", { message: `Skipping ${filename}: unsupported format` });
+              continue;
+            }
+
+            log("Processing file", { filename, size: buffer.length });
+            send("status", { 
+              message: `Analyzing ${filename}...`, 
+              progress: Math.round(baseProgress + 10),
+              currentFile: filename 
+            });
+
             const doc: ProcessedDocument = await processDocument(
               buffer, 
-              file.name,
-              (step) => send("step", { message: step, file: file.name })
+              filename,
+              (step) => send("step", { message: step, file: filename })
             );
 
             send("status", { 
-              message: `Creating embeddings for ${file.name}...`, 
-              progress: Math.round(baseProgress + 20) 
+              message: `Creating embeddings for ${filename}...`, 
+              progress: Math.round(baseProgress + 25) 
             });
 
             const limitedChunks = doc.chunks.slice(0, MAX_CHUNKS_PER_FILE);
             
             const documentChunks: DocumentChunk[] = limitedChunks.map((chunk, index) => ({
-              id: `${sessionId}_${file.name}_${index}`,
+              id: `${sessionId}_${filename}_${index}`,
               content: chunk.content,
               metadata: {
-                filename: file.name,
+                filename: filename,
                 pageNumber: chunk.pageNumber,
               },
             }));
 
             if (documentChunks.length > 0) {
               log("Generating embeddings", { count: documentChunks.length });
-              const embeddings = await generateEmbeddings(
-                documentChunks.map((c) => c.content)
-              );
+              
+              const batchSize = 5;
+              const allEmbeddings: number[][] = [];
+              
+              for (let j = 0; j < documentChunks.length; j += batchSize) {
+                const batch = documentChunks.slice(j, j + batchSize);
+                const embeddings = await generateEmbeddings(batch.map((c) => c.content));
+                allEmbeddings.push(...embeddings);
+                
+                send("status", { 
+                  message: `Embedding ${Math.min(j + batchSize, documentChunks.length)}/${documentChunks.length} chunks...`, 
+                  progress: Math.round(baseProgress + 25 + (j / documentChunks.length) * 20) 
+                });
+              }
               
               send("status", { 
-                message: `Indexing ${file.name}...`, 
-                progress: Math.round(baseProgress + 30) 
+                message: `Indexing ${filename}...`, 
+                progress: Math.round(baseProgress + 50) 
               });
               
               log("Upserting vectors", { sessionId });
-              await upsertDocumentChunks(documentChunks, embeddings, sessionId);
+              await upsertDocumentChunks(documentChunks, allEmbeddings, sessionId);
             }
 
             send("status", { 
-              message: `Building knowledge graph for ${file.name}...`, 
-              progress: Math.round(baseProgress + 35) 
+              message: `Building knowledge graph for ${filename}...`, 
+              progress: Math.round(baseProgress + 55) 
             });
             
             try {
-              await extractEntitiesFromText(doc.fullText.substring(0, 5000), sessionId);
+              await extractEntitiesFromText(doc.fullText.substring(0, 8000), sessionId);
               log("Entities extracted for knowledge graph");
             } catch (kgError) {
               log("Knowledge graph extraction skipped", { error: String(kgError) });
             }
 
-            await addDocument(sessionId, file.name);
+            await addDocument(sessionId, filename);
 
             results.push({
-              filename: file.name,
+              filename: filename,
               documentType: doc.documentType,
               chunks: documentChunks.length,
               pages: doc.metadata.pageCount,
@@ -163,13 +176,13 @@ export async function POST(request: NextRequest) {
             });
 
             log("File processed", { 
-              filename: file.name, 
+              filename, 
               chunks: documentChunks.length,
               pages: doc.metadata.pageCount 
             });
             
             send("file_complete", { 
-              filename: file.name, 
+              filename: filename, 
               documentType: doc.documentType,
               chunks: documentChunks.length,
               pages: doc.metadata.pageCount,
@@ -177,10 +190,10 @@ export async function POST(request: NextRequest) {
             });
 
           } catch (error) {
-            log("File error", { filename: file.name, error: String(error) });
-            send("file_error", { filename: file.name, error: String(error) });
+            log("File error", { url: blobUrl.url, error: String(error) });
+            send("file_error", { filename: blobUrl.filename || "Unknown", error: String(error) });
             results.push({
-              filename: file.name,
+              filename: blobUrl.filename || "Unknown",
               documentType: "unknown",
               chunks: 0,
               pages: 0,

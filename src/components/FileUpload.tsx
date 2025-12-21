@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, X, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, X, File } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface FileUploadProps {
@@ -11,33 +11,249 @@ interface FileUploadProps {
 }
 
 interface UploadedFile {
-  name: string;
-  size: number;
-  status: "pending" | "uploading" | "processing" | "success" | "error";
-  progress?: number;
-  step?: string;
-  error?: string;
+  file: File;
+  status: "pending" | "uploading" | "processing" | "complete" | "error";
+  progress: number;
+  message?: string;
+  pages?: number;
   documentType?: string;
 }
 
-const SUPPORTED_FORMATS = {
-  documents: ["PDF", "DOC", "DOCX"],
-  spreadsheets: ["XLS", "XLSX", "CSV"],
-  images: ["PNG", "JPG", "JPEG", "WEBP"],
-  text: ["TXT", "MD", "JSON"],
-};
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
-const MAX_FILE_SIZE = 4 * 1024 * 1024;
+const SUPPORTED_FORMATS = [
+  { ext: "pdf", label: "PDF", color: "text-red-400" },
+  { ext: "docx", label: "Word", color: "text-blue-400" },
+  { ext: "xlsx", label: "Excel", color: "text-green-400" },
+  { ext: "png", label: "PNG", color: "text-purple-400" },
+  { ext: "jpg", label: "JPG", color: "text-orange-400" },
+  { ext: "txt", label: "Text", color: "text-slate-400" },
+];
 
-export default function FileUpload({
-  onUploadComplete,
-  sessionId,
-}: FileUploadProps) {
+export default function FileUpload({ onUploadComplete, sessionId }: FileUploadProps) {
+  const [files, setFiles] = useState<Map<string, UploadedFile>>(new Map());
   const [isDragging, setIsDragging] = useState(false);
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [overallProgress, setOverallProgress] = useState(0);
-  const [currentStep, setCurrentStep] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const validateFile = (file: File): string | null => {
+    if (file.size > MAX_FILE_SIZE) {
+      return `File too large (max 50MB)`;
+    }
+    const ext = file.name.toLowerCase().split(".").pop() || "";
+    const supported = ["pdf", "png", "jpg", "jpeg", "webp", "tiff", "doc", "docx", "xls", "xlsx", "csv", "txt", "md"];
+    if (!supported.includes(ext)) {
+      return `Unsupported format`;
+    }
+    return null;
+  };
+
+  const addFiles = (newFiles: FileList | File[]) => {
+    const fileArray = Array.from(newFiles);
+    setFiles((prev) => {
+      const updated = new Map(prev);
+      fileArray.forEach((file) => {
+        const error = validateFile(file);
+        updated.set(file.name, {
+          file,
+          status: error ? "error" : "pending",
+          progress: 0,
+          message: error || undefined,
+        });
+      });
+      return updated;
+    });
+  };
+
+  const removeFile = (filename: string) => {
+    setFiles((prev) => {
+      const updated = new Map(prev);
+      updated.delete(filename);
+      return updated;
+    });
+  };
+
+  const uploadToBlob = async (file: File): Promise<{ url: string; filename: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/blob", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Blob upload failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { url: data.url, filename: file.name };
+  };
+
+  const processFiles = async () => {
+    const pendingFiles = Array.from(files.values()).filter((f) => f.status === "pending");
+    if (pendingFiles.length === 0) return;
+
+    setIsProcessing(true);
+    setStatusMessage("Uploading files to storage...");
+    setOverallProgress(5);
+
+    try {
+      const blobUrls: Array<{ url: string; filename: string }> = [];
+
+      for (let i = 0; i < pendingFiles.length; i++) {
+        const uploadedFile = pendingFiles[i];
+        setStatusMessage(`Uploading ${uploadedFile.file.name}...`);
+        
+        setFiles((prev) => {
+          const updated = new Map(prev);
+          updated.set(uploadedFile.file.name, { ...uploadedFile, status: "uploading", progress: 20 });
+          return updated;
+        });
+
+        try {
+          const blobResult = await uploadToBlob(uploadedFile.file);
+          blobUrls.push(blobResult);
+          
+          setFiles((prev) => {
+            const updated = new Map(prev);
+            updated.set(uploadedFile.file.name, { 
+              ...uploadedFile, 
+              status: "processing", 
+              progress: 40,
+              message: "Uploaded, waiting for processing..." 
+            });
+            return updated;
+          });
+        } catch (error) {
+          setFiles((prev) => {
+            const updated = new Map(prev);
+            updated.set(uploadedFile.file.name, { 
+              ...uploadedFile, 
+              status: "error", 
+              message: String(error) 
+            });
+            return updated;
+          });
+        }
+
+        setOverallProgress(10 + ((i + 1) / pendingFiles.length) * 20);
+      }
+
+      if (blobUrls.length === 0) {
+        setIsProcessing(false);
+        return;
+      }
+
+      setStatusMessage("Processing documents with AI...");
+      setOverallProgress(35);
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blobUrls, sessionId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Processing failed: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let newSessionId = sessionId;
+      const completedFiles: string[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n").filter((line) => line.startsWith("data:"));
+
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line.replace("data: ", ""));
+
+            switch (data.event) {
+              case "status":
+                setStatusMessage(data.message);
+                setOverallProgress(data.progress || overallProgress);
+                if (data.sessionId) newSessionId = data.sessionId;
+                break;
+
+              case "step":
+                setStatusMessage(data.message);
+                break;
+
+              case "file_complete":
+                completedFiles.push(data.filename);
+                setFiles((prev) => {
+                  const updated = new Map(prev);
+                  const existing = updated.get(data.filename);
+                  if (existing) {
+                    updated.set(data.filename, {
+                      ...existing,
+                      status: "complete",
+                      progress: 100,
+                      pages: data.pages,
+                      documentType: data.documentType,
+                      message: `${data.pages} page(s), ${data.chunks} chunks`,
+                    });
+                  }
+                  return updated;
+                });
+                break;
+
+              case "file_error":
+                setFiles((prev) => {
+                  const updated = new Map(prev);
+                  const existing = updated.get(data.filename);
+                  if (existing) {
+                    updated.set(data.filename, {
+                      ...existing,
+                      status: "error",
+                      message: data.error,
+                    });
+                  }
+                  return updated;
+                });
+                break;
+
+              case "complete":
+                setStatusMessage("Processing complete!");
+                setOverallProgress(100);
+                if (newSessionId) {
+                  onUploadComplete(newSessionId, completedFiles);
+                }
+                break;
+
+              case "error":
+                setStatusMessage(`Error: ${data.message}`);
+                break;
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+    } catch (error) {
+      setStatusMessage(`Error: ${String(error)}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files) {
+      addFiles(e.dataTransfer.files);
+    }
+  }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -49,357 +265,112 @@ export default function FileUpload({
     setIsDragging(false);
   }, []);
 
-  const getAllSupportedExtensions = () => {
-    return Object.values(SUPPORTED_FORMATS).flat().map((ext) => ext.toLowerCase());
-  };
-
-  const processFiles = async (fileList: FileList | File[]) => {
-    const supportedExtensions = getAllSupportedExtensions();
-    const newFiles = Array.from(fileList);
-    const validFiles: File[] = [];
-    const uploadedFiles: UploadedFile[] = [];
-
-    for (const file of newFiles) {
-      const ext = file.name.toLowerCase().split(".").pop() || "";
-      
-      if (!supportedExtensions.includes(ext)) {
-        uploadedFiles.push({
-          name: file.name,
-          size: file.size,
-          status: "error",
-          error: "Unsupported format",
-        });
-        continue;
-      }
-      
-      if (file.size > MAX_FILE_SIZE) {
-        uploadedFiles.push({
-          name: file.name,
-          size: file.size,
-          status: "error",
-          error: "File too large (max 4MB)",
-        });
-        continue;
-      }
-      
-      validFiles.push(file);
-      uploadedFiles.push({
-        name: file.name,
-        size: file.size,
-        status: "pending",
-      });
-    }
-
-    setFiles((prev) => [...prev, ...uploadedFiles]);
-
-    if (validFiles.length === 0) return;
-
-    setIsUploading(true);
-    setOverallProgress(0);
-    setCurrentStep("Preparing upload...");
-
-    setFiles((prev) =>
-      prev.map((f) =>
-        validFiles.some((vf) => vf.name === f.name)
-          ? { ...f, status: "uploading" as const }
-          : f
-      )
-    );
-
-    const formData = new FormData();
-    validFiles.forEach((file) => formData.append("files", file));
-    if (sessionId) formData.append("sessionId", sessionId);
-
-    try {
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let finalSessionId = sessionId;
-      const completedFiles: string[] = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          
-          try {
-            const data = JSON.parse(line.slice(6));
-
-            switch (data.event) {
-              case "status":
-                setCurrentStep(data.message);
-                if (data.progress) setOverallProgress(data.progress);
-                if (data.sessionId) finalSessionId = data.sessionId;
-                if (data.currentFile) {
-                  setFiles((prev) =>
-                    prev.map((f) =>
-                      f.name === data.currentFile
-                        ? { ...f, status: "processing" as const, step: data.message }
-                        : f
-                    )
-                  );
-                }
-                break;
-
-              case "step":
-                if (data.file) {
-                  setFiles((prev) =>
-                    prev.map((f) =>
-                      f.name === data.file
-                        ? { ...f, step: data.message }
-                        : f
-                    )
-                  );
-                }
-                break;
-
-              case "file_complete":
-                setFiles((prev) =>
-                  prev.map((f) =>
-                    f.name === data.filename
-                      ? { 
-                          ...f, 
-                          status: "success" as const, 
-                          documentType: data.documentType,
-                          step: undefined 
-                        }
-                      : f
-                  )
-                );
-                completedFiles.push(data.filename);
-                break;
-
-              case "file_error":
-                setFiles((prev) =>
-                  prev.map((f) =>
-                    f.name === data.filename
-                      ? { ...f, status: "error" as const, error: data.error }
-                      : f
-                  )
-                );
-                break;
-
-              case "complete":
-                setOverallProgress(100);
-                setCurrentStep("Complete!");
-                if (finalSessionId && completedFiles.length > 0) {
-                  onUploadComplete(finalSessionId, completedFiles);
-                }
-                break;
-
-              case "error":
-                setFiles((prev) =>
-                  prev.map((f) =>
-                    f.status === "uploading" || f.status === "processing"
-                      ? { ...f, status: "error" as const, error: data.message }
-                      : f
-                  )
-                );
-                break;
-            }
-          } catch {
-            // Invalid JSON, skip
-          }
-        }
-      }
-    } catch (error) {
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.status === "uploading" || f.status === "processing"
-            ? { ...f, status: "error" as const, error: "Connection failed" }
-            : f
-        )
-      );
-    } finally {
-      setIsUploading(false);
-      setTimeout(() => {
-        setOverallProgress(0);
-        setCurrentStep("");
-      }, 2000);
-    }
-  };
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    processFiles(e.dataTransfer.files);
-  }, [sessionId]);
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      processFiles(e.target.files);
-    }
-  };
-
-  const removeFile = (name: string) => {
-    setFiles((prev) => prev.filter((f) => f.name !== name));
-  };
-
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / 1048576).toFixed(1) + " MB";
-  };
-
-  const getFileColor = (filename: string) => {
-    const ext = filename.toLowerCase().split(".").pop() || "";
-    const colors: Record<string, string> = {
-      pdf: "text-red-400",
-      doc: "text-blue-400",
-      docx: "text-blue-400",
-      xls: "text-green-400",
-      xlsx: "text-green-400",
-      csv: "text-green-400",
-      png: "text-purple-400",
-      jpg: "text-purple-400",
-      jpeg: "text-purple-400",
-      txt: "text-slate-400",
-    };
-    return colors[ext] || "text-emerald-400";
-  };
+  const pendingCount = Array.from(files.values()).filter((f) => f.status === "pending").length;
 
   return (
     <div className="space-y-4">
       <div
+        onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
         className={cn(
-          "relative border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 cursor-pointer",
+          "relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all",
           isDragging
             ? "border-emerald-500 bg-emerald-500/10"
-            : "border-slate-700 hover:border-slate-600 bg-slate-900/30",
-          isUploading && "pointer-events-none opacity-70"
+            : "border-slate-700 hover:border-slate-600 hover:bg-slate-800/30"
         )}
       >
         <input
+          ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.webp,.txt,.md,.json"
-          onChange={handleFileInput}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-          disabled={isUploading}
+          accept=".pdf,.png,.jpg,.jpeg,.webp,.tiff,.doc,.docx,.xls,.xlsx,.csv,.txt,.md"
+          onChange={(e) => e.target.files && addFiles(e.target.files)}
+          className="hidden"
         />
 
-        <motion.div
-          animate={{ scale: isDragging ? 1.1 : 1 }}
-          className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center"
-        >
-          <Upload
-            className={cn(
-              "w-7 h-7 transition-colors",
-              isDragging ? "text-emerald-400" : "text-slate-400"
-            )}
-          />
-        </motion.div>
-
-        <h3 className="text-lg font-semibold text-white mb-2">
-          {isDragging ? "Drop files here" : "Upload Documents"}
-        </h3>
+        <Upload className={cn("w-10 h-10 mx-auto mb-3", isDragging ? "text-emerald-400" : "text-slate-500")} />
+        <p className="text-white font-medium mb-1">Drop files here or click to browse</p>
+        <p className="text-sm text-slate-400 mb-3">Up to 50MB per file (bank annual reports supported)</p>
         
-        <p className="text-slate-400 text-sm mb-1">
-          PDF, Word, Excel, Images, Text files
-        </p>
-        
-        <p className="text-slate-500 text-xs">
-          Multilingual support • Max 4MB per file
-        </p>
+        <div className="flex flex-wrap gap-2 justify-center">
+          {SUPPORTED_FORMATS.map((format) => (
+            <span key={format.ext} className={cn("text-xs px-2 py-0.5 rounded bg-slate-800", format.color)}>
+              {format.label}
+            </span>
+          ))}
+        </div>
       </div>
 
-      {isUploading && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-slate-800/50 rounded-xl border border-slate-700/50"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-white">{currentStep}</span>
-            <span className="text-sm text-emerald-400">{overallProgress}%</span>
-          </div>
-          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-gradient-to-r from-emerald-500 to-teal-500"
-              initial={{ width: 0 }}
-              animate={{ width: `${overallProgress}%` }}
-              transition={{ duration: 0.3 }}
-            />
-          </div>
-        </motion.div>
-      )}
-
-      <AnimatePresence>
-        {files.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="space-y-2"
-          >
-            {files.map((file) => (
+      {files.size > 0 && (
+        <div className="space-y-2">
+          <AnimatePresence>
+            {Array.from(files.entries()).map(([name, uploadedFile]) => (
               <motion.div
-                key={file.name}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl border border-slate-700/50"
+                key={name}
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50"
               >
-                <div className="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center">
-                  <FileText className={cn("w-5 h-5", getFileColor(file.name))} />
-                </div>
-
+                <File className="w-5 h-5 text-slate-400 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white truncate">{file.name}</p>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">{formatSize(file.size)}</span>
-                    {file.documentType && (
-                      <span className="text-xs text-emerald-400 capitalize">• {file.documentType}</span>
-                    )}
-                    {file.step && (
-                      <span className="text-xs text-slate-400 truncate">• {file.step}</span>
-                    )}
+                    <span className="text-sm text-white truncate">{name}</span>
+                    <span className="text-xs text-slate-500">
+                      ({(uploadedFile.file.size / 1024 / 1024).toFixed(1)} MB)
+                    </span>
                   </div>
+                  {uploadedFile.message && (
+                    <p className={cn(
+                      "text-xs mt-0.5",
+                      uploadedFile.status === "error" ? "text-red-400" : "text-slate-400"
+                    )}>
+                      {uploadedFile.message}
+                    </p>
+                  )}
                 </div>
 
-                {file.status === "pending" && (
-                  <div className="w-5 h-5 rounded-full bg-slate-600" />
+                {uploadedFile.status === "pending" && (
+                  <button onClick={() => removeFile(name)} className="p-1 hover:bg-slate-700 rounded">
+                    <X className="w-4 h-4 text-slate-400" />
+                  </button>
                 )}
-                {(file.status === "uploading" || file.status === "processing") && (
-                  <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
-                )}
-                {file.status === "success" && (
-                  <CheckCircle className="w-5 h-5 text-emerald-400" />
-                )}
-                {file.status === "error" && (
-                  <div className="flex items-center gap-1">
-                    <AlertCircle className="w-4 h-4 text-red-400" />
-                    <span className="text-xs text-red-400 max-w-[100px] truncate">{file.error}</span>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => removeFile(file.name)}
-                  className="w-8 h-8 rounded-lg hover:bg-slate-700/50 flex items-center justify-center transition-colors"
-                >
-                  <X className="w-4 h-4 text-slate-400" />
-                </button>
+                {uploadedFile.status === "uploading" && <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />}
+                {uploadedFile.status === "processing" && <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />}
+                {uploadedFile.status === "complete" && <CheckCircle className="w-5 h-5 text-emerald-400" />}
+                {uploadedFile.status === "error" && <AlertCircle className="w-5 h-5 text-red-400" />}
               </motion.div>
             ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </AnimatePresence>
+        </div>
+      )}
+
+      {isProcessing && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-400">{statusMessage}</span>
+            <span className="text-emerald-400">{Math.round(overallProgress)}%</span>
+          </div>
+          <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${overallProgress}%` }}
+              className="h-full bg-gradient-to-r from-emerald-500 to-teal-500"
+            />
+          </div>
+        </div>
+      )}
+
+      {pendingCount > 0 && !isProcessing && (
+        <button
+          onClick={processFiles}
+          className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-medium hover:from-emerald-500 hover:to-teal-500 transition-all"
+        >
+          Process {pendingCount} file(s)
+        </button>
+      )}
     </div>
   );
 }
