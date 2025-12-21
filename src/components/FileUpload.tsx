@@ -56,7 +56,11 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
   };
 
   const uploadToBlob = async (file: File): Promise<string> => {
-    const blob = await upload(file.name, file, {
+    const ext = file.name.split(".").pop() || "";
+    const baseName = file.name.replace(`.${ext}`, "");
+    const uniqueName = `${baseName}_${Date.now()}.${ext}`;
+    
+    const blob = await upload(uniqueName, file, {
       access: "public",
       handleUploadUrl: "/api/blob",
     });
