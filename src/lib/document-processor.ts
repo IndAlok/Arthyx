@@ -11,7 +11,7 @@ export interface ProcessedDocument {
   requiresOCR: boolean;
   metadata: {
     filename: string;
-    pageCount?: number;
+    pageCount: number;
   };
 }
 
@@ -81,85 +81,42 @@ function extractTextFromExcel(buffer: Buffer): string {
 }
 
 function extractTextFromPlainText(buffer: Buffer): string {
-  log("Extracting plain text");
   const text = buffer.toString("utf-8");
   log("Plain text extraction complete", { length: text.length });
   return text;
 }
 
-async function intelligentPDFExtract(
+async function analyzeDocumentWithAI(
   buffer: Buffer, 
+  mimeType: string,
   filename: string,
   onProgress?: (step: string) => void
-): Promise<{ text: string; usedOCR: boolean }> {
-  log("Starting intelligent PDF extraction", { filename });
+): Promise<{ text: string; pageCount: number; usedOCR: boolean }> {
+  log("Starting AI document analysis", { filename, mimeType });
   
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
   const base64Data = buffer.toString("base64");
 
-  const prompt = `Analyze this PDF document and extract text.
+  const prompt = `You are a document analysis expert. Analyze this document completely and extract ALL text content.
 
-IMPORTANT: First determine if this is:
-1. A TEXT-BASED PDF (has selectable/searchable text) - extract the text directly
-2. A SCANNED/IMAGE PDF (text is in images, not selectable) - perform OCR to extract text
+CRITICAL INSTRUCTIONS:
+1. Extract text from EVERY page of the document
+2. For multi-page documents, clearly mark page breaks as: [PAGE 1], [PAGE 2], etc.
+3. Preserve table structures using markdown tables
+4. Be extremely precise with all numbers, currencies (₹, $), percentages, and dates
+5. Extract ALL financial data: amounts, account numbers, ratios, etc.
+6. For Indian language text (Hindi, Tamil, Bengali, Gujarati), extract with proper Unicode
 
-At the start of your response, indicate the type:
-[TYPE: TEXT-BASED] or [TYPE: SCANNED]
+At the start, indicate: [PAGES: X] where X is the total page count
 
-Then provide ALL the extracted text content. Be precise with numbers, financial data, and any text in Indian languages (Hindi, Tamil, Bengali, Gujarati, etc.).`;
-
-  try {
-    const startTime = Date.now();
-    onProgress?.("Analyzing PDF content...");
-    
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: "application/pdf",
-          data: base64Data,
-        },
-      },
-    ]);
-
-    const response = result.response.text();
-    const usedOCR = response.includes("[TYPE: SCANNED]");
-    
-    const text = response
-      .replace(/\[TYPE: TEXT-BASED\]/g, "")
-      .replace(/\[TYPE: SCANNED\]/g, "")
-      .trim();
-
-    log("PDF extraction complete", { 
-      filename, 
-      duration: Date.now() - startTime,
-      textLength: text.length,
-      usedOCR 
-    });
-
-    onProgress?.(usedOCR ? "Extracted via OCR (scanned PDF)" : "Extracted text (native PDF)");
-    
-    return { text, usedOCR };
-  } catch (error) {
-    log("PDF extraction error", { error: String(error), filename });
-    throw error;
-  }
-}
-
-async function performOCR(buffer: Buffer, mimeType: string, filename: string): Promise<string> {
-  log("Starting OCR for image", { filename, mimeType });
-  
-  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-
-  const base64Data = buffer.toString("base64");
-
-  const prompt = `Extract all text content from this image. Return only the extracted text. Be precise with numbers and any text in Indian languages.`;
+Then provide the complete extracted text with page markers.`;
 
   try {
     const startTime = Date.now();
+    onProgress?.("Analyzing document with AI...");
+    
     const result = await model.generateContent([
       prompt,
       {
@@ -170,38 +127,84 @@ async function performOCR(buffer: Buffer, mimeType: string, filename: string): P
       },
     ]);
 
-    const text = result.response.text();
-    log("Image OCR complete", { 
+    const response = result.response.text();
+    
+    const pageMatch = response.match(/\[PAGES:\s*(\d+)\]/);
+    const pageCount = pageMatch ? parseInt(pageMatch[1], 10) : 1;
+    
+    const text = response
+      .replace(/\[PAGES:\s*\d+\]/g, "")
+      .trim();
+
+    log("Document analysis complete", { 
       filename, 
       duration: Date.now() - startTime,
-      textLength: text.length 
+      textLength: text.length,
+      pageCount 
     });
+
+    onProgress?.(`Extracted ${pageCount} page(s)`);
     
-    return text;
+    return { text, pageCount, usedOCR: true };
   } catch (error) {
-    log("Image OCR error", { error: String(error), filename });
+    log("Document analysis error", { error: String(error), filename });
     throw error;
   }
 }
 
-function createChunks(text: string, maxChunks: number = 8): DocumentChunk[] {
-  log("Creating chunks", { textLength: text.length, maxChunks });
+function createSmartChunks(text: string, pageCount: number, maxChunks: number = 20): DocumentChunk[] {
+  log("Creating smart chunks", { textLength: text.length, pageCount, maxChunks });
   
   const chunks: DocumentChunk[] = [];
-  const chunkSize = 500;
   
-  for (let i = 0; i < text.length && chunks.length < maxChunks; i += chunkSize) {
-    const chunk = text.substring(i, i + chunkSize).trim();
-    if (chunk.length > 30) {
-      chunks.push({
-        content: chunk,
-        pageNumber: 1,
-        chunkIndex: chunks.length,
-      });
+  const pagePattern = /\[PAGE\s*(\d+)\]/gi;
+  const pages: Array<{ pageNumber: number; content: string }> = [];
+  
+  let lastIndex = 0;
+  let lastPage = 1;
+  let match;
+  
+  while ((match = pagePattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      const content = text.substring(lastIndex, match.index).trim();
+      if (content.length > 50) {
+        pages.push({ pageNumber: lastPage, content });
+      }
+    }
+    lastPage = parseInt(match[1], 10);
+    lastIndex = match.index + match[0].length;
+  }
+  
+  if (lastIndex < text.length) {
+    const content = text.substring(lastIndex).trim();
+    if (content.length > 50) {
+      pages.push({ pageNumber: lastPage, content });
+    }
+  }
+  
+  if (pages.length === 0) {
+    pages.push({ pageNumber: 1, content: text });
+  }
+  
+  const chunkSize = 600;
+  const overlap = 100;
+  
+  for (const page of pages) {
+    const pageText = page.content;
+    
+    for (let i = 0; i < pageText.length && chunks.length < maxChunks; i += chunkSize - overlap) {
+      const chunk = pageText.substring(i, i + chunkSize).trim();
+      if (chunk.length > 50) {
+        chunks.push({
+          content: chunk,
+          pageNumber: page.pageNumber,
+          chunkIndex: chunks.length,
+        });
+      }
     }
   }
 
-  log("Chunks created", { count: chunks.length });
+  log("Smart chunks created", { count: chunks.length, pages: pages.length });
   return chunks;
 }
 
@@ -217,6 +220,7 @@ export async function processDocument(
 
   let fullText = "";
   let requiresOCR = false;
+  let pageCount = 1;
 
   switch (documentType) {
     case "text":
@@ -235,9 +239,15 @@ export async function processDocument(
       break;
 
     case "pdf":
-      onProgress?.("Analyzing PDF...");
-      const pdfResult = await intelligentPDFExtract(buffer, filename, onProgress);
+      onProgress?.("Analyzing PDF document...");
+      const pdfResult = await analyzeDocumentWithAI(
+        buffer, 
+        "application/pdf", 
+        filename, 
+        onProgress
+      );
       fullText = pdfResult.text;
+      pageCount = pdfResult.pageCount;
       requiresOCR = pdfResult.usedOCR;
       break;
 
@@ -246,7 +256,8 @@ export async function processDocument(
       onProgress?.("Extracting text from image...");
       const mimeType = filename.toLowerCase().endsWith(".png") ? "image/png" :
         filename.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
-      fullText = await performOCR(buffer, mimeType, filename);
+      const imgResult = await analyzeDocumentWithAI(buffer, mimeType, filename, onProgress);
+      fullText = imgResult.text;
       break;
 
     default:
@@ -255,13 +266,14 @@ export async function processDocument(
   }
 
   onProgress?.("Creating searchable index...");
-  const chunks = createChunks(fullText);
+  const chunks = createSmartChunks(fullText, pageCount);
 
   log("Document processing complete", { 
     filename, 
     documentType, 
     requiresOCR,
     textLength: fullText.length,
+    pageCount,
     chunkCount: chunks.length 
   });
 
@@ -270,6 +282,6 @@ export async function processDocument(
     chunks,
     documentType,
     requiresOCR,
-    metadata: { filename },
+    metadata: { filename, pageCount },
   };
 }

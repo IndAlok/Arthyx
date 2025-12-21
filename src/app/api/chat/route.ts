@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateEmbeddings, generateChatResponse, ChatMessage, SourceContext } from "@/lib/gemini";
 import { queryDocuments } from "@/lib/pinecone";
-import { getSession, addMessage, ConversationMessage } from "@/lib/redis";
+import { getSession, addMessage } from "@/lib/redis";
 
 export const maxDuration = 30;
+
+const log = (step: string, data?: object) => {
+  console.log(`[CHAT] ${step}`, data ? JSON.stringify(data) : "");
+};
 
 export async function POST(request: NextRequest) {
   try {
     const { message, sessionId } = await request.json();
+    log("Chat request", { sessionId, messageLength: message?.length });
 
     if (!message || !sessionId) {
       return NextResponse.json(
@@ -18,46 +23,51 @@ export async function POST(request: NextRequest) {
 
     const session = await getSession(sessionId);
     if (!session) {
+      log("Session not found", { sessionId });
       return NextResponse.json(
         { error: "Session not found. Please upload documents first." },
         { status: 404 }
       );
     }
 
+    log("Session found", { documents: session.documents });
+
+    log("Generating query embedding");
     const [queryEmbedding] = await generateEmbeddings([message]);
 
-    const searchResults = await queryDocuments(queryEmbedding, 10);
+    log("Querying documents with session filter");
+    const searchResults = await queryDocuments(queryEmbedding, sessionId, 15);
 
     const sources: SourceContext[] = searchResults.map((result) => {
       const metadata = result.metadata as {
         content?: string;
         filename?: string;
         pageNumber?: number;
+        chunkIndex?: number;
       };
 
       return {
         filename: metadata.filename || "Unknown",
         pageNumber: metadata.pageNumber || 1,
-        excerpt: (metadata.content || "").substring(0, 300),
+        excerpt: (metadata.content || "").substring(0, 400),
         relevanceScore: result.score || 0,
+        chunkIndex: metadata.chunkIndex,
       };
     });
 
-    const contextParts = sources.map((s) => 
-      `[${s.filename}, Page ${s.pageNumber}]\n${s.excerpt}`
-    );
-    const context = contextParts.join("\n\n---\n\n");
+    log("Sources retrieved", { count: sources.length });
 
-    const history: ChatMessage[] = session.messages.slice(-8).map((m) => ({
+    const history: ChatMessage[] = session.messages.slice(-6).map((m) => ({
       role: m.role === "user" ? "user" : "model",
       content: m.content,
     }));
     history.push({ role: "user", content: message });
 
-    const { response, citedSources } = await generateChatResponse(
+    log("Generating response");
+    const { response, citedSources, chartConfig } = await generateChatResponse(
       history,
-      context,
-      sources
+      sources,
+      session.documents || []
     );
 
     await addMessage(sessionId, {
@@ -77,15 +87,11 @@ export async function POST(request: NextRequest) {
       })),
     });
 
-    let chartConfig = null;
-    const chartMatch = response.match(/\{"chart":\s*\{[\s\S]*?\}\}/);
-    if (chartMatch) {
-      try {
-        chartConfig = JSON.parse(chartMatch[0]).chart;
-      } catch {
-        // Not valid chart JSON
-      }
-    }
+    log("Response complete", { 
+      responseLength: response.length,
+      sourcesCount: citedSources.length,
+      hasChart: !!chartConfig 
+    });
 
     return NextResponse.json({
       success: true,
@@ -97,9 +103,10 @@ export async function POST(request: NextRequest) {
         relevanceScore: s.relevanceScore,
       })),
       chartConfig,
+      documentsAvailable: session.documents || [],
     });
   } catch (error) {
-    console.error("Chat error:", error);
+    log("Chat error", { error: String(error) });
     return NextResponse.json(
       { error: "Failed to process message", details: String(error) },
       { status: 500 }

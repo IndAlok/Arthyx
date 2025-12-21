@@ -2,6 +2,10 @@ import { Pinecone } from "@pinecone-database/pinecone";
 
 let pineconeInstance: Pinecone | null = null;
 
+const log = (step: string, data?: object) => {
+  console.log(`[PINECONE] ${step}`, data ? JSON.stringify(data) : "");
+};
+
 export function getPineconeClient(): Pinecone {
   if (!pineconeInstance) {
     pineconeInstance = new Pinecone({
@@ -22,16 +26,20 @@ export interface DocumentChunk {
   metadata: {
     filename: string;
     pageNumber: number;
-    boundingBox?: { x: number; y: number; width: number; height: number };
+    sessionId?: string;
+    chunkIndex?: number;
+    totalChunks?: number;
   };
   embedding?: number[];
 }
 
 export async function upsertDocumentChunks(
   chunks: DocumentChunk[],
-  embeddings: number[][]
+  embeddings: number[][],
+  sessionId: string
 ) {
   const index = await getIndex();
+  
   const vectors = chunks.map((chunk, i) => ({
     id: chunk.id,
     values: embeddings[i],
@@ -39,29 +47,54 @@ export async function upsertDocumentChunks(
       content: chunk.content,
       filename: chunk.metadata.filename,
       pageNumber: chunk.metadata.pageNumber,
-      boundingBox: JSON.stringify(chunk.metadata.boundingBox || {}),
+      sessionId: sessionId,
+      chunkIndex: i,
+      totalChunks: chunks.length,
     },
   }));
 
+  log("Upserting vectors", { count: vectors.length, sessionId });
   await index.upsert(vectors);
+  log("Upsert complete");
 }
 
 export async function queryDocuments(
   queryEmbedding: number[],
-  topK: number = 5,
-  filter?: Record<string, string>
+  sessionId: string,
+  topK: number = 15
 ) {
   const index = await getIndex();
+  
+  log("Querying documents", { sessionId, topK });
+  
   const results = await index.query({
     vector: queryEmbedding,
     topK,
     includeMetadata: true,
-    filter,
+    filter: {
+      sessionId: { $eq: sessionId },
+    },
   });
-  return results.matches || [];
+  
+  const matches = results.matches || [];
+  log("Query results", { 
+    matchCount: matches.length,
+    topScore: matches[0]?.score 
+  });
+  
+  return matches;
 }
 
-export async function deleteDocumentsByFilename(filename: string) {
+export async function deleteSessionDocuments(sessionId: string) {
   const index = await getIndex();
-  await index.deleteMany({ filename: { $eq: filename } });
+  log("Deleting session documents", { sessionId });
+  
+  try {
+    await index.deleteMany({
+      filter: { sessionId: { $eq: sessionId } },
+    });
+    log("Session documents deleted");
+  } catch (error) {
+    log("Delete error", { error: String(error) });
+  }
 }

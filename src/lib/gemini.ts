@@ -34,14 +34,13 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     try {
       const result = await model.embedContent(truncatedText);
       embeddings.push(result.embedding.values);
-      log("Embedding generated", { index: i, length: truncatedText.length });
     } catch (error) {
       log("Embedding error", { index: i, error: String(error) });
       embeddings.push(new Array(768).fill(0));
     }
   }
 
-  log("All embeddings complete", { 
+  log("Embeddings complete", { 
     count: embeddings.length, 
     duration: Date.now() - startTime 
   });
@@ -59,57 +58,135 @@ export interface SourceContext {
   pageNumber: number;
   excerpt: string;
   relevanceScore: number;
+  chunkIndex?: number;
+}
+
+export interface ChatResponse {
+  response: string;
+  citedSources: SourceContext[];
+  chartConfig?: {
+    type: "bar" | "line" | "pie" | "area";
+    title: string;
+    data: Array<{ name: string; value: number }>;
+  };
 }
 
 export async function generateChatResponse(
   messages: ChatMessage[],
-  context: string,
-  sources: SourceContext[]
-): Promise<{ response: string; citedSources: SourceContext[] }> {
-  log("Generating chat response", { messageCount: messages.length });
+  sources: SourceContext[],
+  documentFilenames: string[]
+): Promise<ChatResponse> {
+  log("Generating chat response", { 
+    messageCount: messages.length,
+    sourceCount: sources.length,
+    documents: documentFilenames 
+  });
+  
   const model = getChatModel();
   const startTime = Date.now();
 
-  const systemPrompt = `You are Arthyx, an advanced financial document analysis assistant.
+  const systemPrompt = `You are **Arthyx**, an advanced financial document analysis assistant specialized in Indian financial data, regulations, and multi-language documents.
 
-CAPABILITIES:
+## Your Capabilities
 - Analyze financial documents in multiple languages (English, Hindi, Tamil, Bengali, Gujarati)
-- Extract and interpret financial metrics and trends
-- Provide insights from uploaded documents
-- Generate visualizations when requested
+- Extract financial metrics, ratios, trends, and insights
+- Generate visualizations when data warrants visual representation
+- Cross-reference information across uploaded documents
 
-GUIDELINES:
-1. Be precise with financial figures
-2. Reference sources when citing document content
-3. If information is not in documents, say so clearly
-4. For charts, respond with JSON: {"chart": {"type": "bar|line|pie", "data": [...], "title": "..."}}`;
+## Response Format
+**ALWAYS use rich Markdown formatting:**
+- Use **bold** for key terms and numbers
+- Use headers (##, ###) to organize complex responses
+- Use bullet points and numbered lists
+- Use tables for comparative data
+- Use \`code\` formatting for specific values
 
-  const formattedContext = sources.length > 0 
-    ? sources.map(s => `[${s.filename}, Page ${s.pageNumber}]\n${s.excerpt}`).join("\n\n---\n\n")
-    : context;
+## Documents Currently Available
+${documentFilenames.map((f, i) => `${i + 1}. ${f}`).join("\n")}
+
+## Citation Rules
+1. When referencing document content, use format: **[Source: filename, Page X]**
+2. Be specific about which document and page the information comes from
+3. If information is NOT in the provided documents, clearly state: "This information is not available in the uploaded documents."
+
+## Visualization Rules
+When the query asks for visualization or when data naturally suits visual representation, include a JSON chart configuration:
+\`\`\`chart
+{"type": "bar|line|pie|area", "title": "Chart Title", "data": [{"name": "Label", "value": 123}]}
+\`\`\`
+
+## Context from Documents
+${sources.map((s, i) => `
+### Source ${i + 1}: ${s.filename} (Page ${s.pageNumber}) [${(s.relevanceScore * 100).toFixed(0)}% relevant]
+${s.excerpt}
+`).join("\n---\n")}`;
+
+  const conversationHistory = messages.map((m) => 
+    `**${m.role === "user" ? "User" : "Arthyx"}:** ${m.content}`
+  ).join("\n\n");
 
   const fullPrompt = `${systemPrompt}
 
-DOCUMENT CONTEXT:
-${formattedContext}
+## Conversation
+${conversationHistory}
 
-CONVERSATION:
-${messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n")}
-
-Respond helpfully based on the document context.`;
+Provide a comprehensive, well-formatted response using Markdown. Include relevant visualizations if appropriate.`;
 
   try {
     const result = await model.generateContent(fullPrompt);
     const responseText = result.response.text();
 
-    log("Chat response generated", { 
+    log("Response generated", { 
       duration: Date.now() - startTime,
       responseLength: responseText.length 
     });
 
+    let chartConfig = undefined;
+    const chartMatch = responseText.match(/```chart\n?([\s\S]*?)```/);
+    if (chartMatch) {
+      try {
+        chartConfig = JSON.parse(chartMatch[1].trim());
+        log("Chart config extracted", { type: chartConfig.type });
+      } catch {
+        log("Chart parse error");
+      }
+    }
+
+    const cleanedResponse = responseText
+      .replace(/```chart\n?[\s\S]*?```/g, "")
+      .trim();
+
+    const citedSources: SourceContext[] = [];
+    const sourceRegex = /\[Source:\s*([^,\]]+),?\s*Page\s*(\d+)\]/gi;
+    let match;
+    
+    while ((match = sourceRegex.exec(responseText)) !== null) {
+      const filename = match[1].trim();
+      const pageNumber = parseInt(match[2], 10);
+      
+      const matchingSource = sources.find(
+        s => s.filename.toLowerCase().includes(filename.toLowerCase()) || 
+             filename.toLowerCase().includes(s.filename.toLowerCase())
+      );
+      
+      if (matchingSource && !citedSources.some(
+        cs => cs.filename === matchingSource.filename && cs.pageNumber === pageNumber
+      )) {
+        citedSources.push({
+          ...matchingSource,
+          pageNumber,
+        });
+      }
+    }
+
+    if (citedSources.length === 0 && sources.length > 0) {
+      citedSources.push(...sources.slice(0, 3));
+    }
+
     return {
-      response: responseText,
-      citedSources: sources.slice(0, 3),
+      response: cleanedResponse,
+      citedSources,
+      chartConfig,
     };
   } catch (error) {
     log("Chat error", { error: String(error) });

@@ -8,7 +8,7 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 4 * 1024 * 1024;
-const MAX_CHUNKS = 6;
+const MAX_CHUNKS_PER_FILE = 20;
 
 const log = (step: string, data?: object) => {
   console.log(`[UPLOAD] ${step}`, data ? JSON.stringify(data) : "");
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
       try {
         log("Upload started");
-        send("status", { message: "Receiving files..." });
+        send("status", { message: "Receiving files...", progress: 5 });
         
         const formData = await request.formData();
         const files = formData.getAll("files") as File[];
@@ -44,7 +44,6 @@ export async function POST(request: NextRequest) {
         }
 
         log("Files received", { count: files.length });
-        send("status", { message: `Processing ${files.length} file(s)...`, progress: 10 });
 
         const validFiles: File[] = [];
         for (const file of files) {
@@ -77,24 +76,25 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        send("status", { message: "Session ready", progress: 15, sessionId });
+        send("status", { message: "Session ready", progress: 10, sessionId });
 
         const results: Array<{
           filename: string;
           documentType: string;
           chunks: number;
+          pages: number;
           success: boolean;
         }> = [];
 
         for (let i = 0; i < validFiles.length; i++) {
           const file = validFiles[i];
-          const fileProgress = 15 + ((i / validFiles.length) * 70);
+          const baseProgress = 10 + ((i / validFiles.length) * 80);
           
           try {
             log("Processing file", { filename: file.name, index: i });
             send("status", { 
               message: `Analyzing ${file.name}...`, 
-              progress: fileProgress,
+              progress: Math.round(baseProgress),
               currentFile: file.name 
             });
 
@@ -108,10 +108,10 @@ export async function POST(request: NextRequest) {
 
             send("status", { 
               message: `Creating embeddings for ${file.name}...`, 
-              progress: fileProgress + 20 
+              progress: Math.round(baseProgress + 25) 
             });
 
-            const limitedChunks = doc.chunks.slice(0, MAX_CHUNKS);
+            const limitedChunks = doc.chunks.slice(0, MAX_CHUNKS_PER_FILE);
             
             const documentChunks: DocumentChunk[] = limitedChunks.map((chunk, index) => ({
               id: `${sessionId}_${file.name}_${index}`,
@@ -130,11 +130,11 @@ export async function POST(request: NextRequest) {
               
               send("status", { 
                 message: `Indexing ${file.name}...`, 
-                progress: fileProgress + 30 
+                progress: Math.round(baseProgress + 35) 
               });
               
-              log("Upserting to vector store");
-              await upsertDocumentChunks(documentChunks, embeddings);
+              log("Upserting vectors", { sessionId });
+              await upsertDocumentChunks(documentChunks, embeddings, sessionId);
             }
 
             await addDocument(sessionId, file.name);
@@ -143,23 +143,26 @@ export async function POST(request: NextRequest) {
               filename: file.name,
               documentType: doc.documentType,
               chunks: documentChunks.length,
+              pages: doc.metadata.pageCount,
               success: true,
             });
 
-            log("File processed successfully", { filename: file.name });
+            log("File processed", { filename: file.name, chunks: documentChunks.length });
             send("file_complete", { 
               filename: file.name, 
               documentType: doc.documentType,
-              chunks: documentChunks.length 
+              chunks: documentChunks.length,
+              pages: doc.metadata.pageCount
             });
 
           } catch (error) {
-            log("File processing error", { filename: file.name, error: String(error) });
+            log("File error", { filename: file.name, error: String(error) });
             send("file_error", { filename: file.name, error: String(error) });
             results.push({
               filename: file.name,
               documentType: "unknown",
               chunks: 0,
+              pages: 0,
               success: false,
             });
           }
@@ -167,12 +170,12 @@ export async function POST(request: NextRequest) {
 
         send("status", { message: "Finalizing...", progress: 95 });
 
-        log("Upload complete", { results });
+        log("Upload complete", { sessionId, fileCount: results.length });
         send("complete", {
           success: true,
           sessionId,
           files: results,
-          message: `Successfully processed ${results.filter(r => r.success).length} file(s)`,
+          message: `Processed ${results.filter(r => r.success).length} file(s)`,
         });
 
       } catch (error) {
