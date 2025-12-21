@@ -87,15 +87,76 @@ function extractTextFromPlainText(buffer: Buffer): string {
   return text;
 }
 
-async function performOCR(buffer: Buffer, mimeType: string, filename: string): Promise<string> {
-  log("Starting OCR", { filename, mimeType });
+async function intelligentPDFExtract(
+  buffer: Buffer, 
+  filename: string,
+  onProgress?: (step: string) => void
+): Promise<{ text: string; usedOCR: boolean }> {
+  log("Starting intelligent PDF extraction", { filename });
   
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
   const base64Data = buffer.toString("base64");
 
-  const prompt = `Extract all text content from this document. Return only the extracted text, nothing else. Be precise with numbers and financial data.`;
+  const prompt = `Analyze this PDF document and extract text.
+
+IMPORTANT: First determine if this is:
+1. A TEXT-BASED PDF (has selectable/searchable text) - extract the text directly
+2. A SCANNED/IMAGE PDF (text is in images, not selectable) - perform OCR to extract text
+
+At the start of your response, indicate the type:
+[TYPE: TEXT-BASED] or [TYPE: SCANNED]
+
+Then provide ALL the extracted text content. Be precise with numbers, financial data, and any text in Indian languages (Hindi, Tamil, Bengali, Gujarati, etc.).`;
+
+  try {
+    const startTime = Date.now();
+    onProgress?.("Analyzing PDF content...");
+    
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType: "application/pdf",
+          data: base64Data,
+        },
+      },
+    ]);
+
+    const response = result.response.text();
+    const usedOCR = response.includes("[TYPE: SCANNED]");
+    
+    const text = response
+      .replace(/\[TYPE: TEXT-BASED\]/g, "")
+      .replace(/\[TYPE: SCANNED\]/g, "")
+      .trim();
+
+    log("PDF extraction complete", { 
+      filename, 
+      duration: Date.now() - startTime,
+      textLength: text.length,
+      usedOCR 
+    });
+
+    onProgress?.(usedOCR ? "Extracted via OCR (scanned PDF)" : "Extracted text (native PDF)");
+    
+    return { text, usedOCR };
+  } catch (error) {
+    log("PDF extraction error", { error: String(error), filename });
+    throw error;
+  }
+}
+
+async function performOCR(buffer: Buffer, mimeType: string, filename: string): Promise<string> {
+  log("Starting OCR for image", { filename, mimeType });
+  
+  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+
+  const base64Data = buffer.toString("base64");
+
+  const prompt = `Extract all text content from this image. Return only the extracted text. Be precise with numbers and any text in Indian languages.`;
 
   try {
     const startTime = Date.now();
@@ -110,7 +171,7 @@ async function performOCR(buffer: Buffer, mimeType: string, filename: string): P
     ]);
 
     const text = result.response.text();
-    log("OCR complete", { 
+    log("Image OCR complete", { 
       filename, 
       duration: Date.now() - startTime,
       textLength: text.length 
@@ -118,12 +179,12 @@ async function performOCR(buffer: Buffer, mimeType: string, filename: string): P
     
     return text;
   } catch (error) {
-    log("OCR error", { error: String(error), filename });
+    log("Image OCR error", { error: String(error), filename });
     throw error;
   }
 }
 
-function createChunks(text: string, maxChunks: number = 10): DocumentChunk[] {
+function createChunks(text: string, maxChunks: number = 8): DocumentChunk[] {
   log("Creating chunks", { textLength: text.length, maxChunks });
   
   const chunks: DocumentChunk[] = [];
@@ -174,13 +235,17 @@ export async function processDocument(
       break;
 
     case "pdf":
+      onProgress?.("Analyzing PDF...");
+      const pdfResult = await intelligentPDFExtract(buffer, filename, onProgress);
+      fullText = pdfResult.text;
+      requiresOCR = pdfResult.usedOCR;
+      break;
+
     case "image":
       requiresOCR = true;
-      onProgress?.("Analyzing document with AI vision...");
-      const mimeType = documentType === "pdf" ? "application/pdf" : 
-        filename.toLowerCase().endsWith(".png") ? "image/png" :
+      onProgress?.("Extracting text from image...");
+      const mimeType = filename.toLowerCase().endsWith(".png") ? "image/png" :
         filename.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
-      
       fullText = await performOCR(buffer, mimeType, filename);
       break;
 
@@ -195,6 +260,7 @@ export async function processDocument(
   log("Document processing complete", { 
     filename, 
     documentType, 
+    requiresOCR,
     textLength: fullText.length,
     chunkCount: chunks.length 
   });
