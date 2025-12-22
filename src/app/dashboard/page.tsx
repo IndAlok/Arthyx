@@ -8,7 +8,7 @@ import { PanelRightOpen, PanelRightClose, Home, Upload, FileText } from "lucide-
 import ChatInterface from "@/components/ChatInterface";
 import FileUpload from "@/components/FileUpload";
 import SourceSidebar from "@/components/SourceSidebar";
-import ChartRenderer from "@/components/ChartRenderer";
+
 import CursorGlow from "@/components/CursorGlow";
 
 interface Source {
@@ -18,17 +18,13 @@ interface Source {
   relevanceScore?: number;
 }
 
-interface ChartConfig {
-  type: "bar" | "line" | "pie" | "area" | "scatter";
-  title: string;
-  data: Array<{ name: string; value: number }>;
-}
+
 
 export default function Dashboard() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<string[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
-  const [chartConfig, setChartConfig] = useState<ChartConfig | null>(null);
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
 
@@ -54,9 +50,7 @@ export default function Dashboard() {
     if (!sidebarOpen) setSidebarOpen(true);
   };
 
-  const handleChartData = (config: object) => {
-    setChartConfig(config as ChartConfig);
-  };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col">
@@ -202,18 +196,8 @@ export default function Dashboard() {
               <ChatInterface
                 sessionId={sessionId}
                 onSourceClick={handleSourceClick}
-                onChartData={handleChartData}
               />
             </motion.div>
-
-            {chartConfig && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <ChartRenderer config={chartConfig} />
-              </motion.div>
-            )}
           </motion.div>
         </div>
 

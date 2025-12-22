@@ -31,15 +31,22 @@ export async function POST(request: NextRequest) {
 
     if (sessionId) {
       session = await getSession(sessionId);
+      log("Session lookup", { 
+        sessionId, 
+        found: !!session, 
+        documents: session?.documents?.length || 0,
+        messages: session?.messages?.length || 0
+      });
+      
       if (session && session.documents && session.documents.length > 0) {
         hasDocuments = true;
         documentFilenames = session.documents;
-        log("Session found", { documents: documentFilenames });
+        log("Documents found", { documents: documentFilenames });
 
         log("Generating query embedding");
         const [queryEmbedding] = await generateEmbeddings([message]);
 
-        log("Querying documents with session filter");
+        log("Querying Pinecone with session filter");
         const searchResults = await queryDocuments(queryEmbedding, sessionId, 25);
 
         sources = searchResults.map((result) => {
@@ -59,7 +66,7 @@ export async function POST(request: NextRequest) {
           };
         });
 
-        log("Sources retrieved", { count: sources.length });
+        log("Sources retrieved", { count: sources.length, topScore: sources[0]?.relevanceScore });
 
         try {
           graphData = await getSessionGraph(sessionId);
@@ -70,6 +77,8 @@ export async function POST(request: NextRequest) {
         } catch (graphError) {
           log("Graph retrieval skipped", { error: String(graphError) });
         }
+      } else {
+        log("No documents in session", { sessionId, sessionExists: !!session });
       }
     }
 

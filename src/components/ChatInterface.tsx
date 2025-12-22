@@ -34,12 +34,10 @@ interface Message {
 interface ChatInterfaceProps {
   sessionId: string | null;
   onSourceClick?: (source: SourceData) => void;
-  onChartData?: (config: object) => void;
 }
 
 export default function ChatInterface({
   sessionId,
-  onChartData,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -128,9 +126,7 @@ export default function ChatInterface({
 
         setMessages([...newMessages, newUserMessage, assistantMessage]);
 
-        if (data.chartConfig && onChartData) {
-          onChartData(data.chartConfig);
-        }
+
       }
     } catch {
       setMessages([...newMessages, newUserMessage, {
@@ -180,9 +176,7 @@ export default function ChatInterface({
 
         setMessages((prev) => [...prev, assistantMessage]);
 
-        if (data.chartConfig && onChartData) {
-          onChartData(data.chartConfig);
-        }
+
       } else {
         setMessages((prev) => [
           ...prev,
@@ -238,9 +232,7 @@ export default function ChatInterface({
 
         setMessages([...newMessages, assistantMessage]);
 
-        if (data.chartConfig && onChartData) {
-          onChartData(data.chartConfig);
-        }
+
       }
     } catch {
       setMessages([...newMessages, {
