@@ -1,4 +1,4 @@
-import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
+import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -12,14 +12,13 @@ const log = (step: string, data?: object) => {
 function getRedisClient(): Redis {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  log("Redis client init", { hasUrl: !!url, hasToken: !!token });
   return new Redis({ url: url!, token: token! });
 }
 
-async function handler(request: Request) {
+export async function POST(request: NextRequest) {
   const startTime = Date.now();
   
-  log("=== BATCH PROCESSING REQUEST STARTED ===");
+  log("=== BATCH PROCESSING REQUEST RECEIVED ===");
   
   try {
     const body = await request.json();
@@ -61,45 +60,25 @@ async function handler(request: Request) {
 
     const prompt = `You are a document extraction expert analyzing pages ${startPage}-${endPage} of a ${totalPages}-page document.
 
-EXTRACTION REQUIREMENTS - CRITICAL:
+EXTRACTION REQUIREMENTS:
 
 1. PAGE MARKERS: Start each page with === PAGE X ===
 
-2. TEXT EXTRACTION: 
-   - Extract EVERY word, number, symbol exactly as printed
-   - Preserve paragraph and section structure
-   - Keep original formatting
+2. TEXT EXTRACTION: Extract EVERY word, number, symbol exactly as printed
 
-3. TABLE EXTRACTION:
-   - Use markdown table format: | Header | Data |
-   - Include ALL rows and columns precisely
-   - Preserve numerical precision (exact decimal places)
+3. TABLE EXTRACTION: Use markdown table format: | Header | Data |
 
-4. FINANCIAL DATA - MUST BE EXACT:
-   - Monetary: ₹ amounts, crores, lakhs, millions
-   - Ratios: NPA%, GNPA%, NNPA%, CAR%, NIM%, ROA%, ROE%
-   - Growth: YoY%, QoQ%, CAGR%
-   - All numbers with exact decimal precision
+4. FINANCIAL DATA - EXACT:
+   - Monetary: ₹ amounts, crores, lakhs
+   - Ratios: NPA%, CAR%, NIM%, ROA%, ROE%
+   - Growth: YoY%, QoQ%
 
-5. SCANNED CONTENT:
-   - OCR all text from scanned pages
-   - Extract text from charts/graphs as data
-   - Include headers, footers, watermarks
-
-6. MULTI-LANGUAGE:
-   - Hindi in Devanagari Unicode
-   - Regional scripts preserved
-
-7. REGULATORY:
-   - SEBI, RBI, Basel references
-   - Compliance statements
-   - Audit observations
+5. SCANNED CONTENT: OCR all text from scanned pages
 
 OUTPUT: Extract COMPLETE text for pages ${startPage}-${endPage}. Do NOT summarize.`;
 
     log("Calling Gemini Vision API", { 
       promptLength: prompt.length, 
-      base64Length: base64Data.length,
       pages: `${startPage}-${endPage}`
     });
     
@@ -154,16 +133,13 @@ OUTPUT: Extract COMPLETE text for pages ${startPage}-${endPage}. Do NOT summariz
       textLength: extractedText.length
     });
 
-    return new Response(JSON.stringify({ 
+    return NextResponse.json({ 
       success: true, 
       batchIndex,
       startPage,
       endPage,
       textLength: extractedText.length,
       duration: totalDuration
-    }), { 
-      status: 200,
-      headers: { "Content-Type": "application/json" }
     });
 
   } catch (error) {
@@ -200,14 +176,9 @@ OUTPUT: Extract COMPLETE text for pages ${startPage}-${endPage}. Do NOT summariz
       log("Failed to record error in Redis", { redisError: String(redisError) });
     }
 
-    return new Response(JSON.stringify({ 
+    return NextResponse.json({ 
       error: String(error), 
       success: false 
-    }), { 
-      status: 200,
-      headers: { "Content-Type": "application/json" }
     });
   }
 }
-
-export const POST = verifySignatureAppRouter(handler);
