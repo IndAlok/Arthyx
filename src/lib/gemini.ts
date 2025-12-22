@@ -20,7 +20,7 @@ export function getEmbeddingModel(): GenerativeModel {
 }
 
 export function getChatModel(): GenerativeModel {
-  return getClient().getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+  return getClient().getGenerativeModel({ model: "gemini-1.5-flash" });
 }
 
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
