@@ -96,7 +96,7 @@ async function extractWithGeminiVision(
   log("Extracting with Gemini Vision", { filename, bufferSize: buffer.length });
   
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
   const base64Data = buffer.toString("base64");
 
