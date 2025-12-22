@@ -7,7 +7,8 @@ import { createSession, addDocument, getSession } from "@/lib/redis";
 export const maxDuration = 60;
 
 const log = (step: string, data?: object) => {
-  console.log(`[DIRECT-UPLOAD] ${step}`, data ? JSON.stringify(data) : "");
+  const timestamp = new Date().toISOString();
+  console.log(`[DIRECT-UPLOAD][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
 };
 
 interface UploadRequest {
@@ -75,12 +76,12 @@ function createDocumentChunks(text: string, filename: string, sessionId: string)
   }
 
   for (const page of pages) {
-    if (chunks.length >= 75) break;
+    if (chunks.length >= 100) break;
     
     const semanticChunks = semanticChunk(page.content, 500, 15);
     
     for (const chunkText of semanticChunks) {
-      if (chunks.length >= 75) break;
+      if (chunks.length >= 100) break;
       if (chunkText.length < 50) continue;
       
       chunks.push({
@@ -101,17 +102,21 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const startTime = Date.now();
 
+  log("=== DIRECT UPLOAD STARTED ===");
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (event: string, data: object) => {
         const message = `data: ${JSON.stringify({ event, ...data, timestamp: Date.now() })}\n\n`;
         controller.enqueue(encoder.encode(message));
-        log(`Event: ${event}`, data);
+        log(`SSE: ${event}`, data);
       };
 
       try {
         const body: UploadRequest = await request.json();
         const { blobUrl, filename, sessionId: existingSessionId } = body;
+
+        log("Request received", { filename, blobUrl: blobUrl?.substring(0, 50) });
 
         if (!blobUrl) {
           send("error", { message: "No blob URL provided" });
@@ -122,12 +127,14 @@ export async function POST(request: NextRequest) {
         let sessionId = existingSessionId;
         if (!sessionId) {
           sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+          log("New sessionId generated", { sessionId });
         }
 
         send("status", { message: "Fetching document...", progress: 5, sessionId });
 
         const response = await fetch(blobUrl);
         if (!response.ok) {
+          log("Blob fetch failed", { status: response.status });
           send("error", { message: `Failed to fetch file: ${response.status}` });
           controller.close();
           return;
@@ -139,33 +146,38 @@ export async function POST(request: NextRequest) {
         log("Document fetched", { fileSize });
         send("status", { message: `Document: ${(fileSize/1024/1024).toFixed(1)}MB`, progress: 10, sessionId });
 
-        const maxSize = 15 * 1024 * 1024;
+        const maxSize = 20 * 1024 * 1024;
         const useBuffer = buffer.length > maxSize ? buffer.subarray(0, maxSize) : buffer;
         const base64Data = useBuffer.toString("base64");
 
         send("status", { message: "Extracting text with Gemini Vision...", progress: 20, sessionId });
 
+        log("Initializing Gemini", { base64Length: base64Data.length });
         const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-        const prompt = `You are a document extraction expert. Extract ALL text from this document with COMPLETE ACCURACY.
+        const prompt = `You are a document extraction expert. Extract ALL text from this PDF with COMPLETE ACCURACY.
 
 CRITICAL REQUIREMENTS:
 1. Extract EVERY word, number, and symbol exactly as written
-2. Mark pages with: === PAGE X ===
+2. Mark each page with: === PAGE X ===
 3. For tables, use markdown format with | separators
-4. For financial data: capture exact amounts, percentages, ratios
+4. For financial data: capture exact amounts, percentages, ratios (NPA%, CAR%, ROA%, ROE%)
 5. For Hindi/regional text: use proper Unicode
 6. Do NOT summarize - extract COMPLETE verbatim text
 
-FINANCIAL DATA TO CAPTURE:
-- Monetary amounts (₹, crores, lakhs)
-- Ratios (NPA%, CAR%, NIM%, ROA%, ROE%)
-- Company names, dates, regulatory references
-- All table data with proper formatting`;
+FINANCIAL DATA - EXACT PRECISION REQUIRED:
+- Monetary amounts (₹, crores, lakhs, millions)
+- Ratios and percentages (GNPA, NNPA, CAR, NIM, ROA, ROE)
+- Growth rates (YoY, QoQ, CAGR)
+- All numerical values with exact decimal places
 
-        log("Calling Gemini Vision", { base64Length: base64Data.length });
+Extract the complete document content:`;
+
+        log("Calling Gemini Vision API");
         const aiStart = Date.now();
+
+        send("status", { message: "Processing with Gemini Vision...", progress: 30, sessionId });
 
         const result = await model.generateContent([
           prompt,
@@ -175,10 +187,11 @@ FINANCIAL DATA TO CAPTURE:
         const extractedText = result.response.text();
         const aiDuration = Date.now() - aiStart;
 
-        log("Extraction complete", { textLength: extractedText.length, aiDuration });
-        send("status", { message: `Extracted ${extractedText.length} characters`, progress: 60, sessionId });
+        log("Gemini extraction complete", { textLength: extractedText.length, aiDuration });
+        send("status", { message: `Extracted ${extractedText.length.toLocaleString()} characters`, progress: 60, sessionId });
 
         if (extractedText.length < 200) {
+          log("Insufficient text extracted", { length: extractedText.length });
           send("error", { message: "Could not extract meaningful text from document" });
           controller.close();
           return;
@@ -198,7 +211,7 @@ FINANCIAL DATA TO CAPTURE:
         log("Chunks created", { count: documentChunks.length });
 
         if (documentChunks.length > 0) {
-          send("status", { message: `Generating embeddings for ${documentChunks.length} chunks...`, progress: 75, sessionId });
+          send("status", { message: `Embedding ${documentChunks.length} chunks...`, progress: 75, sessionId });
 
           const batchSize = 10;
           const allEmbeddings: number[][] = [];
@@ -209,20 +222,20 @@ FINANCIAL DATA TO CAPTURE:
             allEmbeddings.push(...embeddings);
             
             const progress = 75 + Math.round((i / documentChunks.length) * 15);
-            send("status", { message: `Embedding batch ${Math.floor(i / batchSize) + 1}...`, progress, sessionId });
+            send("status", { message: `Embedding: ${Math.min(i + batchSize, documentChunks.length)}/${documentChunks.length}`, progress, sessionId });
           }
 
-          send("status", { message: "Indexing to Pinecone...", progress: 92, sessionId });
+          send("status", { message: "Indexing to vector database...", progress: 92, sessionId });
           await upsertDocumentChunks(documentChunks, allEmbeddings, sessionId);
-          log("Chunks indexed", { count: documentChunks.length });
+          log("Chunks indexed to Pinecone", { count: documentChunks.length });
         }
 
-        send("status", { message: "Registering document...", progress: 95, sessionId });
+        send("status", { message: "Finalizing...", progress: 95, sessionId });
         await addDocument(sessionId, filename);
         log("Document registered", { sessionId, filename });
 
         const duration = Date.now() - startTime;
-        log("Processing complete", { sessionId, duration, chunks: documentChunks.length });
+        log("=== DIRECT UPLOAD COMPLETE ===", { sessionId, duration, chunks: documentChunks.length });
 
         send("file_complete", { filename, chunks: documentChunks.length });
         send("complete", { sessionId, filename, duration, chunks: documentChunks.length });
@@ -230,7 +243,7 @@ FINANCIAL DATA TO CAPTURE:
         controller.close();
 
       } catch (error) {
-        log("Error", { error: String(error) });
+        log("=== DIRECT UPLOAD ERROR ===", { error: String(error) });
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "error", message: String(error) })}\n\n`));
         controller.close();
       }
