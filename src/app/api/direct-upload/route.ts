@@ -129,7 +129,11 @@ export async function POST(request: NextRequest) {
           log("Session created FIRST", { sessionId });
         }
 
-        send("status", { message: "Fetching document...", progress: 5, sessionId });
+        await addDocument(sessionId, filename);
+        log("Document registered IMMEDIATELY", { sessionId, filename });
+        send("status", { message: "Session ready", progress: 5, sessionId });
+
+        send("status", { message: "Fetching document...", progress: 8, sessionId });
 
         const response = await fetch(blobUrl);
         if (!response.ok) {
@@ -144,11 +148,11 @@ export async function POST(request: NextRequest) {
         log("Document fetched", { fileSize });
         send("status", { message: `Document: ${(fileSize/1024/1024).toFixed(1)}MB`, progress: 10, sessionId });
 
-        const maxSize = 10 * 1024 * 1024;
+        const maxSize = 3 * 1024 * 1024;
         const useBuffer = buffer.length > maxSize ? buffer.subarray(0, maxSize) : buffer;
         const base64Data = useBuffer.toString("base64");
 
-        log("Preparing Gemini call", { originalSize: buffer.length, usedSize: useBuffer.length, base64Length: base64Data.length });
+        log("Preparing Gemini call", { originalSize: buffer.length, usedSize: useBuffer.length, base64Length: base64Data.length, limitApplied: buffer.length > maxSize });
         send("status", { message: "Extracting text with Gemini Vision...", progress: 20, sessionId });
 
         const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
