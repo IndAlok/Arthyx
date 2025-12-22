@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
         send("status", { message: "Extracting text with Gemini Vision...", progress: 20, sessionId });
 
         const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
         const prompt = `Extract ALL text from this PDF document with COMPLETE ACCURACY.
 
