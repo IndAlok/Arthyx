@@ -6,7 +6,8 @@ import { createSession, addDocument, getSession } from "@/lib/redis";
 export const maxDuration = 60;
 
 const log = (step: string, data?: object) => {
-  console.log(`[INDEX] ${step}`, data ? JSON.stringify(data) : "");
+  const timestamp = new Date().toISOString();
+  console.log(`[INDEX][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
 };
 
 interface IndexRequest {
@@ -110,35 +111,45 @@ function createSemanticChunks(text: string, maxChunks: number = 75): Array<{
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   
+  log("=== INDEX REQUEST STARTED ===");
+  
   try {
     const body: IndexRequest = await request.json();
     const { extractedText, filename, pages, sessionId: existingSessionId } = body;
     
-    log("Index request", { 
+    log("Request parsed", { 
       filename, 
       pages, 
       textLength: extractedText?.length,
-      hasSession: !!existingSessionId 
+      existingSessionId 
     });
     
     if (!extractedText || extractedText.length < 100) {
+      log("ERROR: Insufficient text", { textLength: extractedText?.length });
       return NextResponse.json({ error: "Insufficient text to index" }, { status: 400 });
     }
 
     let sessionId = existingSessionId;
     if (!sessionId) {
       sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+      log("Creating new session", { sessionId });
       await createSession(sessionId);
-      log("Session created", { sessionId });
+      log("Session created successfully", { sessionId });
     } else {
+      log("Checking existing session", { sessionId });
       const existingSession = await getSession(sessionId);
       if (!existingSession) {
+        log("Session not found, creating", { sessionId });
         await createSession(sessionId);
+        log("Session created successfully", { sessionId });
+      } else {
+        log("Session exists", { sessionId, documents: existingSession.documents?.length || 0 });
       }
     }
 
+    log("Creating semantic chunks");
     const chunks = createSemanticChunks(extractedText)
-    log("Chunks prepared", { count: chunks.length });
+    log("Chunks created", { count: chunks.length });
 
     const documentChunks: DocumentChunk[] = chunks.map((chunk, index) => ({
       id: `${sessionId}_${filename.replace(/[^a-zA-Z0-9]/g, "_")}_${index}`,
@@ -163,14 +174,22 @@ export async function POST(request: NextRequest) {
         log("Batch embedded", { batch: Math.floor(i / batchSize) + 1, total: Math.ceil(documentChunks.length / batchSize) });
       }
 
+      log("Upserting to Pinecone", { chunkCount: documentChunks.length });
       await upsertDocumentChunks(documentChunks, allEmbeddings, sessionId);
-      log("Chunks indexed", { count: documentChunks.length });
+      log("Pinecone upsert complete", { count: documentChunks.length });
     }
 
+    log("Adding document to session", { sessionId, filename });
     await addDocument(sessionId, filename);
+    log("Document added to session successfully");
 
     const processingTime = Date.now() - startTime;
-    log("Indexing complete", { sessionId, chunks: chunks.length, processingTime });
+    log("=== INDEX COMPLETE ===", { 
+      sessionId, 
+      chunks: chunks.length, 
+      processingTime,
+      filename
+    });
 
     return NextResponse.json({
       success: true,
@@ -181,7 +200,7 @@ export async function POST(request: NextRequest) {
       processingTime,
     });
   } catch (error) {
-    log("Index error", { error: String(error) });
+    log("=== INDEX ERROR ===", { error: String(error) });
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

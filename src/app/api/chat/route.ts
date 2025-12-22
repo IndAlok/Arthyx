@@ -8,7 +8,8 @@ import { extractFinancialMetrics, generateRiskReport } from "@/lib/risk-analyzer
 export const maxDuration = 30;
 
 const log = (step: string, data?: object) => {
-  console.log(`[CHAT] ${step}`, data ? JSON.stringify(data) : "");
+  const timestamp = new Date().toISOString();
+  console.log(`[CHAT][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
 };
 
 export async function POST(request: NextRequest) {
