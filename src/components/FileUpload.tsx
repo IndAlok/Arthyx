@@ -60,11 +60,11 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     filename: string,
     updateStatus: (msg: string, pct: number) => void
   ): Promise<{ sessionId: string; pages: number }> => {
-    console.log(`[FileUpload] Starting direct processing for ${filename}`);
+    console.log(`[FileUpload] Starting async processing for ${filename}`);
     console.log(`[FileUpload] Blob URL: ${blobUrl.substring(0, 80)}...`);
     console.log(`[FileUpload] Session ID: ${sessionId || "new session will be created"}`);
     
-    const response = await fetch("/api/direct-upload", {
+    const response = await fetch("/api/async-upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ blobUrl, filename, sessionId }),
