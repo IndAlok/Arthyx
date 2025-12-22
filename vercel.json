@@ -2,6 +2,17 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
+  "functions": {
+    "app/api/process-batch/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/async-upload/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/direct-upload/route.ts": {
+      "maxDuration": 300
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",
