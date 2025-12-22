@@ -87,53 +87,41 @@ function extractTextFromPlainText(buffer: Buffer): string {
   return buffer.toString("utf-8");
 }
 
-function estimatePageCount(buffer: Buffer): number {
-  const pdfString = buffer.toString("binary");
-  const matches = pdfString.match(/\/Type\s*\/Page[^s]/g);
-  return matches ? matches.length : 1;
-}
-
-async function extractWithGemini(
+async function extractWithGeminiVision(
   buffer: Buffer,
   mimeType: string,
   filename: string,
-  estimatedPages: number,
   onProgress?: (step: string) => void
 ): Promise<{ text: string; pages: number; language: string }> {
-  log("Extracting with Gemini", { filename, estimatedPages, bufferSize: buffer.length });
+  log("Extracting with Gemini Vision", { filename, bufferSize: buffer.length });
   
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-  const maxBytes = 10 * 1024 * 1024;
-  const useBuffer = buffer.length > maxBytes ? buffer.subarray(0, maxBytes) : buffer;
-  const base64Data = useBuffer.toString("base64");
+  const base64Data = buffer.toString("base64");
 
-  const prompt = `You are a financial document analyzer. Extract ALL text content from this document with COMPLETE ACCURACY.
+  const prompt = `You are a document OCR and extraction expert. Extract ALL text from this document with COMPLETE ACCURACY.
 
-REQUIREMENTS:
-1. Extract EVERY financial figure, amount, percentage, ratio
-2. Include ALL company names, regulatory references (SEBI, RBI, Basel)
-3. Preserve table data as markdown tables with | separators
-4. For each distinct section/page, mark with: === PAGE X ===
-5. Extract Indian language content (Hindi, Tamil, etc.) with proper Unicode
-6. Report total pages: [TOTAL_PAGES: X]
-7. Detect language: [LANGUAGE: X]
+CRITICAL REQUIREMENTS:
+1. Extract EVERY word, number, and symbol exactly as written
+2. Preserve document structure with clear page markers: === PAGE X ===
+3. For tables, use markdown format with | separators
+4. For financial data: capture exact amounts, percentages, ratios
+5. For Hindi/regional text: use proper Unicode characters
+6. For charts/graphs: describe the data they represent
 
-CRITICAL FINANCIAL DATA TO CAPTURE:
-- NPA (GNPA, NNPA percentages)
-- CAR (Capital Adequacy Ratio)
-- NIM (Net Interest Margin)
-- ROA, ROE percentages
-- Total Assets, Liabilities, Revenue
-- Profit/Loss figures
-- All amounts in crores/lakhs
+FINANCIAL DATA TO CAPTURE PRECISELY:
+- All monetary amounts (₹, crores, lakhs, millions)
+- Percentages and ratios (NPA%, CAR%, NIM%, ROA%, ROE%)
+- Company names, dates, regulatory references
+- Table headers and all cell values
 
-Extract the COMPLETE text, not summaries. Be thorough.`;
+Report at end: [TOTAL_PAGES: X] [LANGUAGE: X]
+
+Extract COMPLETE text - do not summarize or skip sections.`;
 
   try {
-    const startTime = Date.now();
-    onProgress?.(`Processing ${estimatedPages} pages with AI...`);
+    onProgress?.("Running vision extraction...");
     
     const result = await model.generateContent([
       prompt,
@@ -143,7 +131,7 @@ Extract the COMPLETE text, not summaries. Be thorough.`;
     const response = result.response.text();
     
     const pagesMatch = response.match(/\[TOTAL_PAGES:\s*(\d+)\]/);
-    const pages = pagesMatch ? parseInt(pagesMatch[1], 10) : estimatedPages;
+    const pages = pagesMatch ? parseInt(pagesMatch[1], 10) : 1;
     
     const languageMatch = response.match(/\[LANGUAGE:\s*([^\]]+)\]/);
     const language = languageMatch ? languageMatch[1].trim() : "English";
@@ -153,27 +141,43 @@ Extract the COMPLETE text, not summaries. Be thorough.`;
       .replace(/\[LANGUAGE:\s*[^\]]+\]/g, "")
       .trim();
 
-    log("Gemini extraction complete", { 
-      pages, 
-      textLength: text.length,
-      duration: Date.now() - startTime
-    });
-    
-    onProgress?.(`Extracted ${pages} pages`);
+    log("Vision extraction complete", { pages, textLength: text.length });
     
     return { text, pages, language };
   } catch (error) {
-    log("Gemini extraction error", { error: String(error) });
+    log("Vision extraction error", { error: String(error) });
     throw error;
   }
 }
 
-function createChunks(text: string, maxChunks: number = 50): DocumentChunk[] {
-  const chunks: DocumentChunk[] = [];
-  const chunkSize = 1000;
-  const overlap = 150;
+function semanticChunk(text: string, chunkSize: number = 500, overlapPercent: number = 15): string[] {
+  const overlap = Math.floor(chunkSize * (overlapPercent / 100));
+  const chunks: string[] = [];
   
-  const pagePattern = /===\s*PAGE\s*(\d+)\s*===/gi;
+  const paragraphs = text.split(/\n\n+/);
+  let currentChunk = "";
+  
+  for (const para of paragraphs) {
+    if (currentChunk.length + para.length > chunkSize && currentChunk.length > 0) {
+      chunks.push(currentChunk.trim());
+      const overlapText = currentChunk.slice(-overlap);
+      currentChunk = overlapText + " " + para;
+    } else {
+      currentChunk += (currentChunk ? "\n\n" : "") + para;
+    }
+  }
+  
+  if (currentChunk.trim().length > 50) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  return chunks;
+}
+
+function createChunksWithSemanticSplit(text: string, maxChunks: number = 50): DocumentChunk[] {
+  const chunks: DocumentChunk[] = [];
+  
+  const pagePattern = /===\s*(?:PAGE|SHEET)\s*[:\s]*(\d+)\s*===/gi;
   const pages: Array<{ pageNumber: number; content: string }> = [];
   
   let lastIndex = 0;
@@ -183,7 +187,7 @@ function createChunks(text: string, maxChunks: number = 50): DocumentChunk[] {
   while ((match = pagePattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
       const content = text.substring(lastIndex, match.index).trim();
-      if (content.length > 100) {
+      if (content.length > 50) {
         pages.push({ pageNumber: currentPageNum, content });
       }
     }
@@ -193,48 +197,37 @@ function createChunks(text: string, maxChunks: number = 50): DocumentChunk[] {
   
   if (lastIndex < text.length) {
     const content = text.substring(lastIndex).trim();
-    if (content.length > 100) {
+    if (content.length > 50) {
       pages.push({ pageNumber: currentPageNum, content });
     }
   }
   
-  if (pages.length === 0 && text.length > 100) {
-    const lines = text.split("\n");
-    const linesPerPage = Math.ceil(lines.length / 10);
-    for (let i = 0; i < 10 && i * linesPerPage < lines.length; i++) {
-      const pageContent = lines.slice(i * linesPerPage, (i + 1) * linesPerPage).join("\n");
-      if (pageContent.trim().length > 100) {
-        pages.push({ pageNumber: i + 1, content: pageContent });
-      }
-    }
+  if (pages.length === 0 && text.length > 50) {
+    pages.push({ pageNumber: 1, content: text });
   }
-
-  log("Pages identified", { count: pages.length });
 
   for (const page of pages) {
     if (chunks.length >= maxChunks) break;
     
-    const pageText = page.content;
-    let pageChunks = 0;
-    const maxChunksPerPage = 3;
+    const semanticChunks = semanticChunk(page.content, 500, 15);
     
-    for (let i = 0; i < pageText.length && pageChunks < maxChunksPerPage && chunks.length < maxChunks; i += chunkSize - overlap) {
-      const chunk = pageText.substring(i, i + chunkSize).trim();
-      if (chunk.length > 100) {
-        const isTable = chunk.includes("|") && (chunk.includes("---") || chunk.match(/\|\s*\d/));
-        
-        chunks.push({
-          content: chunk,
-          pageNumber: page.pageNumber,
-          chunkIndex: chunks.length,
-          type: isTable ? "table" : "text",
-        });
-        pageChunks++;
-      }
+    for (const chunkText of semanticChunks) {
+      if (chunks.length >= maxChunks) break;
+      if (chunkText.length < 50) continue;
+      
+      const isTable = chunkText.includes("|") && (chunkText.includes("---") || /\|\s*\d/.test(chunkText));
+      const isHeader = /^#+\s/.test(chunkText) || /^[A-Z][A-Z\s]{5,}$/.test(chunkText.split("\n")[0]);
+      
+      chunks.push({
+        content: chunkText,
+        pageNumber: page.pageNumber,
+        chunkIndex: chunks.length,
+        type: isTable ? "table" : isHeader ? "header" : "text",
+      });
     }
   }
 
-  log("Chunks created", { count: chunks.length });
+  log("Semantic chunks created", { count: chunks.length });
   return chunks;
 }
 
@@ -245,9 +238,9 @@ export async function processDocument(
 ): Promise<ProcessedDocument> {
   const startTime = Date.now();
   const documentType = detectDocumentType(filename);
-  log("Processing", { filename, documentType, size: buffer.length });
+  log("Processing document", { filename, documentType, size: buffer.length });
   
-  onProgress?.(`Processing ${documentType}...`);
+  onProgress?.(`Analyzing ${documentType}...`);
 
   let fullText = "";
   let requiresOCR = false;
@@ -273,48 +266,32 @@ export async function processDocument(
       break;
 
     case "pdf":
-      const estimatedPages = estimatePageCount(buffer);
-      log("PDF estimated pages", { estimatedPages });
-      
-      requiresOCR = true;
-      processingMethod = "ocr";
-      
-      const pdfResult = await extractWithGemini(
-        buffer, 
-        "application/pdf", 
-        filename, 
-        estimatedPages,
-        onProgress
-      );
-      
-      fullText = pdfResult.text;
-      pageCount = pdfResult.pages;
-      language = pdfResult.language;
-      break;
-
     case "image":
       requiresOCR = true;
       processingMethod = "ocr";
-      onProgress?.("Running OCR...");
-      const mimeType = filename.toLowerCase().endsWith(".png") ? "image/png" :
+      onProgress?.("Running vision extraction...");
+      
+      const mimeType = documentType === "pdf" ? "application/pdf" :
+        filename.toLowerCase().endsWith(".png") ? "image/png" :
         filename.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
       
-      const imgResult = await extractWithGemini(buffer, mimeType, filename, 1, onProgress);
-      fullText = imgResult.text;
-      pageCount = imgResult.pages;
-      language = imgResult.language;
+      const visionResult = await extractWithGeminiVision(buffer, mimeType, filename, onProgress);
+      fullText = visionResult.text;
+      pageCount = visionResult.pages;
+      language = visionResult.language;
       break;
 
     default:
       fullText = extractTextFromPlainText(buffer);
   }
 
-  onProgress?.("Creating search index...");
-  const chunks = createChunks(fullText);
+  onProgress?.("Creating semantic index...");
+  const chunks = createChunksWithSemanticSplit(fullText);
 
-  log("Complete", { 
+  const processingTime = Date.now() - startTime;
+  log("Document complete", { 
     filename, 
-    duration: Date.now() - startTime,
+    processingTime,
     pages: pageCount,
     chunks: chunks.length,
     textLength: fullText.length
