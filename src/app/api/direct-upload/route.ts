@@ -20,7 +20,6 @@ interface UploadRequest {
 function semanticChunk(text: string, chunkSize: number = 500, overlapPercent: number = 15): string[] {
   const overlap = Math.floor(chunkSize * (overlapPercent / 100));
   const chunks: string[] = [];
-  
   const paragraphs = text.split(/\n\n+/);
   let currentChunk = "";
   
@@ -30,8 +29,7 @@ function semanticChunk(text: string, chunkSize: number = 500, overlapPercent: nu
     
     if (currentChunk.length + cleanPara.length > chunkSize && currentChunk.length > 100) {
       chunks.push(currentChunk.trim());
-      const overlapText = currentChunk.slice(-overlap);
-      currentChunk = overlapText + " " + cleanPara;
+      currentChunk = currentChunk.slice(-overlap) + " " + cleanPara;
     } else {
       currentChunk += (currentChunk ? "\n\n" : "") + cleanPara;
     }
@@ -40,14 +38,12 @@ function semanticChunk(text: string, chunkSize: number = 500, overlapPercent: nu
   if (currentChunk.trim().length > 50) {
     chunks.push(currentChunk.trim());
   }
-  
   return chunks;
 }
 
 function createDocumentChunks(text: string, filename: string, sessionId: string): DocumentChunk[] {
   const pagePattern = /===\s*(?:PAGE|BATCH|SECTION)[:\s]*(\d+)(?:[^\n]*)?===/gi;
   const chunks: DocumentChunk[] = [];
-  
   const pages: Array<{ pageNumber: number; content: string }> = [];
   let lastIndex = 0;
   let currentPageNum = 1;
@@ -56,9 +52,7 @@ function createDocumentChunks(text: string, filename: string, sessionId: string)
   while ((match = pagePattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
       const content = text.substring(lastIndex, match.index).trim();
-      if (content.length > 100) {
-        pages.push({ pageNumber: currentPageNum, content });
-      }
+      if (content.length > 100) pages.push({ pageNumber: currentPageNum, content });
     }
     currentPageNum = parseInt(match[1], 10);
     lastIndex = match.index + match[0].length;
@@ -66,9 +60,7 @@ function createDocumentChunks(text: string, filename: string, sessionId: string)
   
   if (lastIndex < text.length) {
     const content = text.substring(lastIndex).trim();
-    if (content.length > 100) {
-      pages.push({ pageNumber: currentPageNum, content });
-    }
+    if (content.length > 100) pages.push({ pageNumber: currentPageNum, content });
   }
   
   if (pages.length === 0 && text.length > 100) {
@@ -77,7 +69,6 @@ function createDocumentChunks(text: string, filename: string, sessionId: string)
 
   for (const page of pages) {
     if (chunks.length >= 100) break;
-    
     const semanticChunks = semanticChunk(page.content, 500, 15);
     
     for (const chunkText of semanticChunks) {
@@ -87,34 +78,37 @@ function createDocumentChunks(text: string, filename: string, sessionId: string)
       chunks.push({
         id: `${sessionId}_${filename.replace(/[^a-zA-Z0-9]/g, "_")}_${chunks.length}`,
         content: chunkText,
-        metadata: {
-          filename,
-          pageNumber: page.pageNumber,
-        },
+        metadata: { filename, pageNumber: page.pageNumber },
       });
     }
   }
-
   return chunks;
 }
 
 export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const startTime = Date.now();
-
   log("=== DIRECT UPLOAD STARTED ===");
 
   const stream = new ReadableStream({
     async start(controller) {
       const send = (event: string, data: object) => {
-        const message = `data: ${JSON.stringify({ event, ...data, timestamp: Date.now() })}\n\n`;
-        controller.enqueue(encoder.encode(message));
-        log(`SSE: ${event}`, data);
+        try {
+          const message = `data: ${JSON.stringify({ event, ...data, timestamp: Date.now() })}\n\n`;
+          controller.enqueue(encoder.encode(message));
+          log(`SSE: ${event}`, data);
+        } catch (e) {
+          log("SSE send error", { error: String(e) });
+        }
       };
+
+      let sessionId = "";
+      let filename = "";
 
       try {
         const body: UploadRequest = await request.json();
-        const { blobUrl, filename, sessionId: existingSessionId } = body;
+        const { blobUrl, sessionId: existingSessionId } = body;
+        filename = body.filename;
 
         log("Request received", { filename, blobUrl: blobUrl?.substring(0, 50) });
 
@@ -124,10 +118,15 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        let sessionId = existingSessionId;
-        if (!sessionId) {
-          sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-          log("New sessionId generated", { sessionId });
+        sessionId = existingSessionId || `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+        log("SessionId", { sessionId, isNew: !existingSessionId });
+
+        send("status", { message: "Creating session...", progress: 3, sessionId });
+        
+        const existingSession = await getSession(sessionId);
+        if (!existingSession) {
+          await createSession(sessionId);
+          log("Session created FIRST", { sessionId });
         }
 
         send("status", { message: "Fetching document...", progress: 5, sessionId });
@@ -142,95 +141,97 @@ export async function POST(request: NextRequest) {
 
         const buffer = Buffer.from(await response.arrayBuffer());
         const fileSize = buffer.length;
-        
         log("Document fetched", { fileSize });
         send("status", { message: `Document: ${(fileSize/1024/1024).toFixed(1)}MB`, progress: 10, sessionId });
 
-        const maxSize = 20 * 1024 * 1024;
+        const maxSize = 10 * 1024 * 1024;
         const useBuffer = buffer.length > maxSize ? buffer.subarray(0, maxSize) : buffer;
         const base64Data = useBuffer.toString("base64");
 
+        log("Preparing Gemini call", { originalSize: buffer.length, usedSize: useBuffer.length, base64Length: base64Data.length });
         send("status", { message: "Extracting text with Gemini Vision...", progress: 20, sessionId });
 
-        log("Initializing Gemini", { base64Length: base64Data.length });
         const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-        const prompt = `You are a document extraction expert. Extract ALL text from this PDF with COMPLETE ACCURACY.
+        const prompt = `Extract ALL text from this PDF document with COMPLETE ACCURACY.
 
-CRITICAL REQUIREMENTS:
-1. Extract EVERY word, number, and symbol exactly as written
-2. Mark each page with: === PAGE X ===
-3. For tables, use markdown format with | separators
-4. For financial data: capture exact amounts, percentages, ratios (NPA%, CAR%, ROA%, ROE%)
-5. For Hindi/regional text: use proper Unicode
-6. Do NOT summarize - extract COMPLETE verbatim text
+REQUIREMENTS:
+1. Extract EVERY word, number exactly as written
+2. Mark pages with: === PAGE X ===
+3. Tables: use markdown | format
+4. Financial data: exact ₹ amounts, %, ratios
+5. Do NOT summarize - complete verbatim text
 
-FINANCIAL DATA - EXACT PRECISION REQUIRED:
-- Monetary amounts (₹, crores, lakhs, millions)
-- Ratios and percentages (GNPA, NNPA, CAR, NIM, ROA, ROE)
-- Growth rates (YoY, QoQ, CAGR)
-- All numerical values with exact decimal places
+Extract now:`;
 
-Extract the complete document content:`;
-
-        log("Calling Gemini Vision API");
-        const aiStart = Date.now();
-
+        log("Calling Gemini Vision API - START");
         send("status", { message: "Processing with Gemini Vision...", progress: 30, sessionId });
-
-        const result = await model.generateContent([
-          prompt,
-          { inlineData: { mimeType: "application/pdf", data: base64Data } },
-        ]);
-
-        const extractedText = result.response.text();
-        const aiDuration = Date.now() - aiStart;
-
-        log("Gemini extraction complete", { textLength: extractedText.length, aiDuration });
-        send("status", { message: `Extracted ${extractedText.length.toLocaleString()} characters`, progress: 60, sessionId });
-
-        if (extractedText.length < 200) {
-          log("Insufficient text extracted", { length: extractedText.length });
-          send("error", { message: "Could not extract meaningful text from document" });
+        
+        const aiStart = Date.now();
+        let extractedText = "";
+        
+        try {
+          const result = await model.generateContent([
+            prompt,
+            { inlineData: { mimeType: "application/pdf", data: base64Data } },
+          ]);
+          extractedText = result.response.text();
+          log("Gemini extraction SUCCESS", { textLength: extractedText.length, duration: Date.now() - aiStart });
+        } catch (geminiError) {
+          log("Gemini extraction FAILED", { error: String(geminiError), duration: Date.now() - aiStart });
+          send("error", { message: `Gemini extraction failed: ${String(geminiError).substring(0, 100)}` });
+          
+          await addDocument(sessionId, filename);
+          send("complete", { sessionId, filename, duration: Date.now() - startTime, chunks: 0, error: "extraction_failed" });
           controller.close();
           return;
         }
 
-        send("status", { message: "Creating session...", progress: 65, sessionId });
+        send("status", { message: `Extracted ${extractedText.length.toLocaleString()} chars`, progress: 60, sessionId });
 
-        const existingSession = await getSession(sessionId);
-        if (!existingSession) {
-          await createSession(sessionId);
-          log("Session created", { sessionId });
+        if (extractedText.length < 200) {
+          log("Insufficient text", { length: extractedText.length });
+          await addDocument(sessionId, filename);
+          send("complete", { sessionId, filename, duration: Date.now() - startTime, chunks: 0, error: "insufficient_text" });
+          controller.close();
+          return;
         }
 
-        send("status", { message: "Building semantic chunks...", progress: 70, sessionId });
-
+        send("status", { message: "Building semantic chunks...", progress: 65, sessionId });
         const documentChunks = createDocumentChunks(extractedText, filename, sessionId);
         log("Chunks created", { count: documentChunks.length });
 
         if (documentChunks.length > 0) {
-          send("status", { message: `Embedding ${documentChunks.length} chunks...`, progress: 75, sessionId });
+          send("status", { message: `Embedding ${documentChunks.length} chunks...`, progress: 70, sessionId });
 
           const batchSize = 10;
           const allEmbeddings: number[][] = [];
 
           for (let i = 0; i < documentChunks.length; i += batchSize) {
             const batch = documentChunks.slice(i, i + batchSize);
-            const embeddings = await generateEmbeddings(batch.map((c) => c.content));
-            allEmbeddings.push(...embeddings);
-            
-            const progress = 75 + Math.round((i / documentChunks.length) * 15);
-            send("status", { message: `Embedding: ${Math.min(i + batchSize, documentChunks.length)}/${documentChunks.length}`, progress, sessionId });
+            try {
+              const embeddings = await generateEmbeddings(batch.map((c) => c.content));
+              allEmbeddings.push(...embeddings);
+              const progress = 70 + Math.round((i / documentChunks.length) * 15);
+              send("status", { message: `Embedded ${Math.min(i + batchSize, documentChunks.length)}/${documentChunks.length}`, progress, sessionId });
+            } catch (embedError) {
+              log("Embedding batch error", { batch: i, error: String(embedError) });
+            }
           }
 
-          send("status", { message: "Indexing to vector database...", progress: 92, sessionId });
-          await upsertDocumentChunks(documentChunks, allEmbeddings, sessionId);
-          log("Chunks indexed to Pinecone", { count: documentChunks.length });
+          if (allEmbeddings.length > 0) {
+            send("status", { message: "Indexing to vector DB...", progress: 88, sessionId });
+            try {
+              await upsertDocumentChunks(documentChunks.slice(0, allEmbeddings.length), allEmbeddings, sessionId);
+              log("Pinecone indexed", { count: allEmbeddings.length });
+            } catch (pineconeError) {
+              log("Pinecone error", { error: String(pineconeError) });
+            }
+          }
         }
 
-        send("status", { message: "Finalizing...", progress: 95, sessionId });
+        send("status", { message: "Registering document...", progress: 95, sessionId });
         await addDocument(sessionId, filename);
         log("Document registered", { sessionId, filename });
 
@@ -239,12 +240,24 @@ Extract the complete document content:`;
 
         send("file_complete", { filename, chunks: documentChunks.length });
         send("complete", { sessionId, filename, duration, chunks: documentChunks.length });
-
         controller.close();
 
       } catch (error) {
-        log("=== DIRECT UPLOAD ERROR ===", { error: String(error) });
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "error", message: String(error) })}\n\n`));
+        log("=== FATAL ERROR ===", { error: String(error), sessionId });
+        
+        if (sessionId && filename) {
+          try {
+            const session = await getSession(sessionId);
+            if (!session) await createSession(sessionId);
+            await addDocument(sessionId, filename);
+            log("Session/doc created despite error", { sessionId });
+          } catch (e) {
+            log("Cleanup also failed", { error: String(e) });
+          }
+        }
+        
+        send("error", { message: String(error), sessionId });
+        send("complete", { sessionId, filename, duration: Date.now() - startTime, chunks: 0, error: "fatal" });
         controller.close();
       }
     },
