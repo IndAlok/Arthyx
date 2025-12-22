@@ -63,10 +63,11 @@ export async function addMessage(
   message: ConversationMessage
 ): Promise<void> {
   const client = getRedisClient();
-  const session = await getSession(sessionId);
+  let session = await getSession(sessionId);
 
   if (!session) {
-    throw new Error("Session not found");
+    session = await createSession(sessionId);
+    log("Session auto-created for message", { sessionId });
   }
 
   session.messages.push(message);
@@ -84,17 +85,18 @@ export async function addDocument(
   filename: string
 ): Promise<void> {
   const client = getRedisClient();
-  const session = await getSession(sessionId);
+  let session = await getSession(sessionId);
 
   if (!session) {
-    throw new Error("Session not found");
+    session = await createSession(sessionId);
+    log("Session auto-created for document", { sessionId });
   }
 
   if (!session.documents.includes(filename)) {
     session.documents.push(filename);
     session.lastActive = Date.now();
     await client.setex(`session:${sessionId}`, SESSION_TTL, session);
-    log("Document added", { sessionId, filename });
+    log("Document added", { sessionId, filename, totalDocs: session.documents.length });
   }
 }
 
