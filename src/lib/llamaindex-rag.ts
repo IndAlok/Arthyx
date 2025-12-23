@@ -52,7 +52,7 @@ export async function queryWithLlamaIndex(
     const queryEmbedding = await generateEmbedding(query);
 
     const pinecone = getPineconeClient();
-    const index = pinecone.index("financial-docs");
+    const index = pinecone.index("arthyx");
 
     const queryResponse = await index.query({
       vector: queryEmbedding,

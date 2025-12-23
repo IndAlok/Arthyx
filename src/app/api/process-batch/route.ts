@@ -128,7 +128,7 @@ Extract now:`;
     log("Chunks created", { count: chunks.length });
 
     const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
-    const index = pinecone.index("financial-docs");
+    const index = pinecone.index("arthyx");
 
     const batchSize = 5;
     let indexed = 0;
