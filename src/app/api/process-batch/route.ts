@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import { Redis } from "@upstash/redis";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { extractTextWithVision } from "@/lib/cloud-vision";
+import { indexDocumentWithLlamaIndex } from "@/lib/llamaindex-rag";
 
 export const maxDuration = 300;
 
@@ -68,59 +69,63 @@ export async function POST(request: NextRequest) {
     copiedPages.forEach((page) => newPdf.addPage(page));
     
     const batchPdfBytes = await newPdf.save();
-    const base64Pdf = Buffer.from(batchPdfBytes).toString("base64");
+    const batchBuffer = Buffer.from(batchPdfBytes);
     
     log("Batch PDF extracted", { 
       originalSize: pdfBytes.byteLength,
       batchSize: batchPdfBytes.byteLength,
-      base64Length: base64Pdf.length,
       pagesExtracted: pagesToCopy.length,
       extractTime: Date.now() - extractStart,
       compression: `${Math.round((1 - batchPdfBytes.byteLength / pdfBytes.byteLength) * 100)}% smaller`
     });
 
-    log("Calling Gemini Vision on batch PDF");
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-    const prompt = `Extract ALL text from this PDF batch (pages ${startPage}-${endPage} of ${totalPages}).
-
-REQUIREMENTS:
-1. Mark each page: === PAGE X ===
-2. Extract EVERY word, number, symbol exactly
-3. Tables: markdown | format with all data
-4. Financial data: exact ₹ amounts, %, ratios (NPA, CAR, ROA, ROE)
-5. Hindi text: proper Unicode
-6. Charts/images: describe key data points
-7. Do NOT summarize - complete verbatim extraction
-
-Extract pages ${startPage}-${endPage}:`;
-
-    const aiStart = Date.now();
+    log("=== CLOUD VISION OCR ===");
+    const visionStart = Date.now();
     
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { mimeType: "application/pdf", data: base64Pdf } },
-    ]);
-
-    const extractedText = result.response.text();
+    const visionResult = await extractTextWithVision(batchBuffer, {
+      extractTables: true,
+    });
     
-    log("Gemini extraction complete", { 
-      batchIndex,
-      textLength: extractedText.length,
-      aiDuration: Date.now() - aiStart,
-      pages: `${startPage}-${endPage}`
+    log("Vision extraction complete", {
+      pages: visionResult.pages.length,
+      tables: visionResult.tables.length,
+      textLength: visionResult.fullText.length,
+      languages: visionResult.languages,
+      confidence: visionResult.confidence.toFixed(2),
+      visionTime: Date.now() - visionStart,
     });
 
+    log("=== LLAMAINDEX INDEXING ===");
+    const indexStart = Date.now();
+    
+    const indexResult = await indexDocumentWithLlamaIndex(
+      visionResult,
+      filename,
+      sessionId
+    );
+    
+    log("LlamaIndex indexing complete", {
+      documentCount: indexResult.documentCount,
+      chunkCount: indexResult.chunkCount,
+      indexTime: Date.now() - indexStart,
+    });
+
+    const extractedText = visionResult.fullText;
     const existingText = await redis.hget(`job:${jobId}`, "extractedText") as string || "";
     const sectionMarker = `\n\n=== BATCH ${batchIndex + 1}: PAGES ${startPage}-${endPage} ===\n\n`;
     const newText = existingText + sectionMarker + extractedText;
     
-    await redis.hset(`job:${jobId}`, { extractedText: newText });
+    await redis.hset(`job:${jobId}`, { 
+      extractedText: newText,
+      tables: JSON.stringify(visionResult.tables),
+      languages: visionResult.languages.join(","),
+    });
+    
     log("Text appended to job", { 
       previousLength: existingText.length, 
       addedLength: extractedText.length,
-      totalLength: newText.length
+      totalLength: newText.length,
+      tablesFound: visionResult.tables.length,
     });
 
     const completed = await redis.hincrby(`job:${jobId}`, "completedBatches", 1);
@@ -138,13 +143,16 @@ Extract pages ${startPage}-${endPage}:`;
       batchIndex,
       duration: totalDuration,
       textLength: extractedText.length,
-      pagesProcessed: pagesToCopy.length
+      pagesProcessed: pagesToCopy.length,
+      chunksIndexed: indexResult.chunkCount,
     });
 
     return NextResponse.json({ 
       success: true, 
       batchIndex,
       textLength: extractedText.length,
+      tables: visionResult.tables.length,
+      chunks: indexResult.chunkCount,
       completed,
       totalBatches,
       pagesProcessed: pagesToCopy.length,

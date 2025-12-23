@@ -4,6 +4,7 @@ import { queryDocuments } from "@/lib/pinecone";
 import { getSession, addMessage } from "@/lib/redis";
 import { getSessionGraph } from "@/lib/neo4j";
 import { extractFinancialMetrics, generateRiskReport } from "@/lib/risk-analyzer";
+import { queryWithLlamaIndex } from "@/lib/llamaindex-rag";
 
 export const maxDuration = 30;
 
@@ -53,21 +54,54 @@ export async function POST(request: NextRequest) {
         sources = searchResults.map((result) => {
           const metadata = result.metadata as {
             content?: string;
+            text?: string;
             filename?: string;
             pageNumber?: number;
             chunkIndex?: number;
+            type?: string;
           };
 
           return {
             filename: metadata.filename || "Unknown",
             pageNumber: metadata.pageNumber || 1,
-            excerpt: (metadata.content || "").substring(0, 500),
+            excerpt: (metadata.content || metadata.text || "").substring(0, 500),
             relevanceScore: result.score || 0,
             chunkIndex: metadata.chunkIndex,
           };
         });
 
         log("Sources retrieved", { count: sources.length, topScore: sources[0]?.relevanceScore });
+
+        try {
+          log("Trying LlamaIndex enhanced query");
+          const llamaResult = await queryWithLlamaIndex(message, sessionId, { topK: 5 });
+          
+          if (llamaResult.sources.length > 0) {
+            const llamaSources = llamaResult.sources.map(s => ({
+              filename: documentFilenames[0] || "Document",
+              pageNumber: s.pageNumber,
+              excerpt: s.text.substring(0, 500),
+              relevanceScore: s.score,
+              chunkIndex: 0,
+              type: s.type,
+            }));
+            
+            const existingPages = new Set(sources.map(s => s.pageNumber));
+            for (const ls of llamaSources) {
+              if (!existingPages.has(ls.pageNumber)) {
+                sources.push(ls);
+              }
+            }
+            
+            log("LlamaIndex sources merged", { 
+              llamaCount: llamaResult.sources.length, 
+              totalSources: sources.length,
+              confidence: llamaResult.confidence.toFixed(3)
+            });
+          }
+        } catch (llamaError) {
+          log("LlamaIndex query skipped", { error: String(llamaError) });
+        }
 
         try {
           graphData = await getSessionGraph(sessionId);
