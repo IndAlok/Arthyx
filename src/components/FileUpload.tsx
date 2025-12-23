@@ -60,67 +60,36 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     filename: string,
     updateStatus: (msg: string, pct: number) => void
   ): Promise<{ sessionId: string; pages: number }> => {
-    console.log(`[FileUpload] Starting async processing for ${filename}`);
+    console.log(`[FileUpload] Starting direct processing for ${filename}`);
     console.log(`[FileUpload] Blob URL: ${blobUrl.substring(0, 80)}...`);
-    console.log(`[FileUpload] Session ID: ${sessionId || "new session will be created"}`);
     
-    const response = await fetch("/api/async-upload", {
+    updateStatus("Processing document (this may take 2-5 minutes for large files)...", 15);
+    
+    const response = await fetch("/api/direct-upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ blobUrl, filename, sessionId }),
     });
 
     if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Upload failed: ${response.status} - ${errorText}`);
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error("No response stream");
-
-    const decoder = new TextDecoder();
-    let newSessionId = sessionId || "";
-    let pages = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      const lines = chunk.split("\n").filter(l => l.startsWith("data:"));
-
-      for (const line of lines) {
-        try {
-          const data = JSON.parse(line.replace("data: ", ""));
-          
-          switch (data.event) {
-            case "status":
-              console.log(`[FileUpload] Status: ${data.message} (${data.progress}%)`);
-              updateStatus(data.message, data.progress || 0);
-              if (data.sessionId) newSessionId = data.sessionId;
-              break;
-              
-            case "file_complete":
-              pages = data.pages || 0;
-              console.log(`[FileUpload] File complete: ${pages} pages`);
-              break;
-              
-            case "complete":
-              console.log(`[FileUpload] Processing complete`);
-              if (data.sessionId) newSessionId = data.sessionId;
-              break;
-              
-            case "error":
-              throw new Error(data.message);
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message !== "Unexpected end of JSON input") {
-            throw e;
-          }
-        }
-      }
+    const result = await response.json();
+    
+    console.log(`[FileUpload] Processing complete:`, result);
+    
+    if (!result.success) {
+      throw new Error(result.error || "Processing failed");
     }
-
-    return { sessionId: newSessionId, pages };
+    
+    updateStatus(`Processed ${result.pages} pages, ${result.chunks} chunks indexed`, 95);
+    
+    return {
+      sessionId: result.sessionId,
+      pages: result.pages || 0,
+    };
   };
 
   const processSmallFile = async (
