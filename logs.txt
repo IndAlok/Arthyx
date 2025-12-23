@@ -1,0 +1,176 @@
+2025-12-23T18:38:03.242866199Z ==> Downloading cache...
+2025-12-23T18:38:03.288864042Z ==> Cloning from https://github.com/IndAlok/Arthyx
+2025-12-23T18:38:05.482650775Z ==> Checking out commit 1ce2d0af182c144ddad90dcb8aa9220948ad80a0 in branch main
+2025-12-23T18:38:26.279200353Z ==> Downloaded 748MB in 3s. Extraction took 20s.
+2025-12-23T18:39:02.590423525Z ==> Using Node.js version 22.16.0 (default)
+2025-12-23T18:39:02.614957755Z ==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+2025-12-23T18:39:02.741450255Z ==> Running build command 'npm install; npm run build'...
+2025-12-23T18:39:04.243146826Z 
+2025-12-23T18:39:04.243176157Z up to date, audited 743 packages in 1s
+2025-12-23T18:39:04.243181537Z 
+2025-12-23T18:39:04.243196787Z 282 packages are looking for funding
+2025-12-23T18:39:04.243201697Z   run `npm fund` for details
+2025-12-23T18:39:04.244268601Z 
+2025-12-23T18:39:04.244284592Z found 0 vulnerabilities
+2025-12-23T18:39:04.508394981Z 
+2025-12-23T18:39:04.508418301Z > arthyx@0.1.0 build
+2025-12-23T18:39:04.508422711Z > next build
+2025-12-23T18:39:04.508426401Z 
+2025-12-23T18:39:05.872745718Z ▲ Next.js 16.1.0 (Turbopack)
+2025-12-23T18:39:05.873092356Z - Experiments (use with caution):
+2025-12-23T18:39:05.873146767Z   · serverActions
+2025-12-23T18:39:05.87327351Z 
+2025-12-23T18:39:05.915332285Z   Creating an optimized production build ...
+2025-12-23T18:39:32.257705941Z ✓ Compiled successfully in 25.8s
+2025-12-23T18:39:32.292997573Z   Running TypeScript ...
+2025-12-23T18:39:39.442653791Z   Collecting page data using 15 workers ...
+2025-12-23T18:39:42.881510963Z ⚠ Using edge runtime on a page currently disables static generation for that page
+2025-12-23T18:39:44.139623567Z   Generating static pages using 15 workers (0/12) ...
+2025-12-23T18:39:44.94551093Z   Generating static pages using 15 workers (3/12) 
+2025-12-23T18:39:45.34197079Z   Generating static pages using 15 workers (6/12) 
+2025-12-23T18:39:45.362472951Z ⚠ metadataBase property in metadata export is not set for resolving social open graph or twitter images, using "http://localhost:10000". See https://nextjs.org/docs/app/api-reference/functions/generate-metadata#metadatabase
+2025-12-23T18:39:45.610853537Z   Generating static pages using 15 workers (9/12) 
+2025-12-23T18:39:45.612516724Z ✓ Generating static pages using 15 workers (12/12) in 1473.0ms
+2025-12-23T18:39:45.618433447Z   Finalizing page optimization ...
+2025-12-23T18:39:45.680778446Z 
+2025-12-23T18:39:45.683652351Z Route (app)
+2025-12-23T18:39:45.683666761Z ┌ ○ /
+2025-12-23T18:39:45.683674062Z ├ ○ /_not-found
+2025-12-23T18:39:45.683679722Z ├ ƒ /api/async-upload
+2025-12-23T18:39:45.683684242Z ├ ƒ /api/blob
+2025-12-23T18:39:45.683689122Z ├ ƒ /api/chat
+2025-12-23T18:39:45.683694112Z ├ ƒ /api/direct-upload
+2025-12-23T18:39:45.683698852Z ├ ƒ /api/index
+2025-12-23T18:39:45.683703602Z ├ ƒ /api/process-batch
+2025-12-23T18:39:45.683707832Z ├ ƒ /api/session
+2025-12-23T18:39:45.683711882Z ├ ƒ /api/upload
+2025-12-23T18:39:45.683725993Z ├ ○ /dashboard
+2025-12-23T18:39:45.683728963Z └ ○ /icon.png
+2025-12-23T18:39:45.683731723Z 
+2025-12-23T18:39:45.683734373Z 
+2025-12-23T18:39:45.683790894Z ○  (Static)   prerendered as static content
+2025-12-23T18:39:45.683803104Z ƒ  (Dynamic)  server-rendered on demand
+2025-12-23T18:39:45.683806574Z 
+2025-12-23T18:39:48.000834032Z ==> Uploading build...
+2025-12-23T18:40:10.702476344Z ==> Uploaded in 14.3s. Compression took 8.4s
+2025-12-23T18:40:10.814407347Z ==> Build successful 🎉
+2025-12-23T18:40:26.758207176Z ==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+2025-12-23T18:40:26.925688936Z ==> Deploying...
+2025-12-23T18:41:27.02368364Z ==> Running 'npm run start'
+2025-12-23T18:41:28.723678596Z 
+2025-12-23T18:41:28.723702827Z > arthyx@0.1.0 start
+2025-12-23T18:41:28.723706988Z > next start
+2025-12-23T18:41:28.723709528Z 
+2025-12-23T18:41:31.215170139Z ▲ Next.js 16.1.0
+2025-12-23T18:41:31.215599593Z - Local:         http://localhost:10000
+2025-12-23T18:41:31.215623345Z - Network:       http://10.17.45.76:10000
+2025-12-23T18:41:31.215814405Z 
+2025-12-23T18:41:31.217711054Z ✓ Starting...
+2025-12-23T18:41:34.756920674Z ==> Your service is live 🎉
+2025-12-23T18:41:34.942481346Z ==> 
+2025-12-23T18:41:35.128036659Z ==> ///////////////////////////////////////////////////////////
+2025-12-23T18:41:35.313420512Z ==> 
+2025-12-23T18:41:35.497769525Z ==> Available at your primary URL https://arthyx.onrender.com
+2025-12-23T18:41:35.683803338Z ==> 
+2025-12-23T18:41:35.86992718Z ==> ///////////////////////////////////////////////////////////
+2025-12-23T18:41:36.419003463Z ✓ Ready in 6.8s
+2025-12-23T18:42:08.616108297Z onUploadCompleted provided but no callbackUrl could be determined. Please provide a callbackUrl in onBeforeGenerateToken or set the VERCEL_BLOB_CALLBACK_URL environment variable.
+2025-12-23T18:42:16.928953638Z [ASYNC-UPLOAD][2025-12-23T18:42:16.928Z] === ASYNC UPLOAD STARTED === 
+2025-12-23T18:42:17.019907245Z [ASYNC-UPLOAD][2025-12-23T18:42:17.019Z] Request received {"filename":"integrated-annual-report-2023-24_compressed.pdf","blobUrl":"https://i47pmo25alwbufgp.public.blob.vercel-storag","existingSessionId":null}
+2025-12-23T18:42:17.021293415Z [ASYNC-UPLOAD][2025-12-23T18:42:17.021Z] Using RENDER URL for callbacks {"renderUrl":"https://arthyx.onrender.com"}
+2025-12-23T18:42:17.021421082Z [ASYNC-UPLOAD][2025-12-23T18:42:17.021Z] SessionId {"sessionId":"session_1766515337021_y22k43vl5","isNew":true}
+2025-12-23T18:42:17.02227233Z [ASYNC-UPLOAD][2025-12-23T18:42:17.022Z] SSE: status {"message":"Creating session...","progress":3,"sessionId":"session_1766515337021_y22k43vl5"}
+2025-12-23T18:42:17.584914489Z [REDIS] Session created {"sessionId":"session_1766515337021_y22k43vl5"}
+2025-12-23T18:42:17.584964532Z [ASYNC-UPLOAD][2025-12-23T18:42:17.584Z] Session created {"sessionId":"session_1766515337021_y22k43vl5"}
+2025-12-23T18:42:17.72020627Z [REDIS] Document added {"sessionId":"session_1766515337021_y22k43vl5","filename":"integrated-annual-report-2023-24_compressed.pdf","totalDocs":1}
+2025-12-23T18:42:17.720251173Z [ASYNC-UPLOAD][2025-12-23T18:42:17.720Z] Document registered IMMEDIATELY {"sessionId":"session_1766515337021_y22k43vl5","filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:17.720523348Z [ASYNC-UPLOAD][2025-12-23T18:42:17.720Z] SSE: status {"message":"Fetching document...","progress":5,"sessionId":"session_1766515337021_y22k43vl5"}
+2025-12-23T18:42:20.317686529Z [ASYNC-UPLOAD][2025-12-23T18:42:20.317Z] Document analyzed {"fileSize":6959073,"estimatedPages":580}
+2025-12-23T18:42:20.317851268Z [ASYNC-UPLOAD][2025-12-23T18:42:20.317Z] SSE: status {"message":"Document: 580 pages (~6.6MB)","progress":10,"sessionId":"session_1766515337021_y22k43vl5"}
+2025-12-23T18:42:20.386046104Z [ASYNC-UPLOAD][2025-12-23T18:42:20.385Z] Job created in Redis {"jobId":"job_1766515340317_d0bb0a","numBatches":12}
+2025-12-23T18:42:20.386345282Z [ASYNC-UPLOAD][2025-12-23T18:42:20.386Z] SSE: status {"message":"Queuing 12 batches...","progress":15,"sessionId":"session_1766515337021_y22k43vl5"}
+2025-12-23T18:42:21.004502143Z [ASYNC-UPLOAD][2025-12-23T18:42:21.004Z] QStash batch 0 published {"messageId":"msg_7YoJxFpwkEy5zBp36cVJzYKxVZkSvhBXnC7dGaXah4zU4UFRDAT3f","pages":"1-50"}
+2025-12-23T18:42:21.532359094Z [PROCESS-BATCH][2025-12-23T18:42:21.532Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:21.533051054Z [PROCESS-BATCH][2025-12-23T18:42:21.532Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":0,"startPage":1,"endPage":50,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:21.534080003Z [PROCESS-BATCH][2025-12-23T18:42:21.533Z] Fetching full document from blob 
+2025-12-23T18:42:21.594842314Z [ASYNC-UPLOAD][2025-12-23T18:42:21.594Z] QStash batch 1 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNB8829nadahd11H5eUXvhVVmpoE5NyCYz3au3PM2o5k","pages":"51-100"}
+2025-12-23T18:42:21.856986403Z [ASYNC-UPLOAD][2025-12-23T18:42:21.856Z] QStash batch 2 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNCtiJEfGyUCL9CHWtdL6Z7PhTkKLRbYFrivmu2GGQAY","pages":"101-150"}
+2025-12-23T18:42:22.037791174Z [ASYNC-UPLOAD][2025-12-23T18:42:22.037Z] QStash batch 3 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNCtiJEaGn7ptS38oiz7SjCkpFtr5E1Nc1eXargCqKMA","pages":"151-200"}
+2025-12-23T18:42:22.420254178Z [ASYNC-UPLOAD][2025-12-23T18:42:22.420Z] QStash batch 4 published {"messageId":"msg_7YoJxFpwkEy6sUx5ZxdfEuttVHCaxzvjtzZGbnY9nE14wM19JABMB","pages":"201-250"}
+2025-12-23T18:42:22.522937735Z [PROCESS-BATCH][2025-12-23T18:42:22.522Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:22.523312457Z [PROCESS-BATCH][2025-12-23T18:42:22.523Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":3,"startPage":151,"endPage":200,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:22.523489857Z [PROCESS-BATCH][2025-12-23T18:42:22.523Z] Fetching full document from blob 
+2025-12-23T18:42:22.91661083Z [PROCESS-BATCH][2025-12-23T18:42:22.916Z] Full document fetched {"size":6959073,"fetchTime":1382}
+2025-12-23T18:42:22.916652642Z [PROCESS-BATCH][2025-12-23T18:42:22.916Z] Extracting batch pages with pdf-lib {"startPage":1,"endPage":50}
+2025-12-23T18:42:23.720779299Z [PROCESS-BATCH][2025-12-23T18:42:23.720Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:23.815373185Z [PROCESS-BATCH][2025-12-23T18:42:23.814Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":2,"startPage":101,"endPage":150,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:23.815398126Z [PROCESS-BATCH][2025-12-23T18:42:23.815Z] Fetching full document from blob 
+2025-12-23T18:42:23.920458599Z [ASYNC-UPLOAD][2025-12-23T18:42:23.920Z] QStash batch 5 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNB882AT7URkAXZHhgjFjoGyTzc1zPm8AgGrAzAwx89N","pages":"251-300"}
+2025-12-23T18:42:24.220948009Z [PROCESS-BATCH][2025-12-23T18:42:24.220Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:24.221536152Z [PROCESS-BATCH][2025-12-23T18:42:24.221Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":4,"startPage":201,"endPage":250,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:24.221731113Z [PROCESS-BATCH][2025-12-23T18:42:24.221Z] Fetching full document from blob 
+2025-12-23T18:42:24.414728751Z [ASYNC-UPLOAD][2025-12-23T18:42:24.414Z] QStash batch 6 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNB882AQ9UcmxkFAV7xoexyvUPa8ztLkRzVXD3p6rYYS","pages":"301-350"}
+2025-12-23T18:42:24.420252997Z [PROCESS-BATCH][2025-12-23T18:42:24.420Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:24.420713793Z [PROCESS-BATCH][2025-12-23T18:42:24.420Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":1,"startPage":51,"endPage":100,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:24.420942956Z [PROCESS-BATCH][2025-12-23T18:42:24.420Z] Fetching full document from blob 
+2025-12-23T18:42:24.817430311Z [PROCESS-BATCH][2025-12-23T18:42:24.817Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:24.818144442Z [PROCESS-BATCH][2025-12-23T18:42:24.817Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":5,"startPage":251,"endPage":300,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:24.81828169Z [PROCESS-BATCH][2025-12-23T18:42:24.818Z] Fetching full document from blob 
+2025-12-23T18:42:25.122127482Z [ASYNC-UPLOAD][2025-12-23T18:42:25.121Z] QStash batch 7 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNB882AKwFK5ahBfeZ3zCKNN4CnTwqqj8AjvZwNUqBJs","pages":"351-400"}
+2025-12-23T18:42:25.423483911Z [PROCESS-BATCH][2025-12-23T18:42:25.422Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:25.423525603Z [PROCESS-BATCH][2025-12-23T18:42:25.422Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":7,"startPage":351,"endPage":400,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:25.423528913Z [PROCESS-BATCH][2025-12-23T18:42:25.422Z] Fetching full document from blob 
+2025-12-23T18:42:25.930158562Z [ASYNC-UPLOAD][2025-12-23T18:42:25.929Z] QStash batch 8 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNC1RACHadLU9J79GCYsCD2cwmn3R5KvaJriZq7oGM7u","pages":"401-450"}
+2025-12-23T18:42:26.021542433Z [PROCESS-BATCH][2025-12-23T18:42:26.021Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:26.022200771Z [PROCESS-BATCH][2025-12-23T18:42:26.022Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":6,"startPage":301,"endPage":350,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:26.024433809Z [PROCESS-BATCH][2025-12-23T18:42:26.023Z] Fetching full document from blob 
+2025-12-23T18:42:26.619013663Z [PROCESS-BATCH][2025-12-23T18:42:26.618Z] Full document fetched {"size":6959073,"fetchTime":2397}
+2025-12-23T18:42:26.619067396Z [PROCESS-BATCH][2025-12-23T18:42:26.618Z] Extracting batch pages with pdf-lib {"startPage":201,"endPage":250}
+2025-12-23T18:42:28.318560104Z [ASYNC-UPLOAD][2025-12-23T18:42:28.318Z] QStash batch 9 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNCtiJGNVaYqM1rGGEpt9u3JLL4zJiwVkVUy7PLw5tJ8","pages":"451-500"}
+2025-12-23T18:42:28.323629083Z [PROCESS-BATCH][2025-12-23T18:42:28.323Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:28.324948809Z [PROCESS-BATCH][2025-12-23T18:42:28.324Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":8,"startPage":401,"endPage":450,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:28.32653942Z [PROCESS-BATCH][2025-12-23T18:42:28.325Z] Fetching full document from blob 
+2025-12-23T18:42:28.717983446Z [PROCESS-BATCH][2025-12-23T18:42:28.717Z] Full document fetched {"size":6959073,"fetchTime":6194}
+2025-12-23T18:42:28.718065671Z [PROCESS-BATCH][2025-12-23T18:42:28.717Z] Extracting batch pages with pdf-lib {"startPage":151,"endPage":200}
+2025-12-23T18:42:29.02099012Z [PROCESS-BATCH][2025-12-23T18:42:29.019Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:29.021032002Z [PROCESS-BATCH][2025-12-23T18:42:29.020Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":9,"startPage":451,"endPage":500,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:29.021501679Z [PROCESS-BATCH][2025-12-23T18:42:29.021Z] Fetching full document from blob 
+2025-12-23T18:42:29.323562789Z [ASYNC-UPLOAD][2025-12-23T18:42:29.323Z] QStash batch 10 published {"messageId":"msg_26hZCxZCuWyyTWPmSVBrNCtiJE8cR18zWDMtmYjgvi5Luve4kERsMHD18ChzugC","pages":"501-550"}
+2025-12-23T18:42:29.522665756Z [PROCESS-BATCH][2025-12-23T18:42:29.522Z] Full document fetched {"size":6959073,"fetchTime":5707}
+2025-12-23T18:42:29.522703768Z [PROCESS-BATCH][2025-12-23T18:42:29.522Z] Extracting batch pages with pdf-lib {"startPage":101,"endPage":150}
+2025-12-23T18:42:31.415907084Z [PROCESS-BATCH][2025-12-23T18:42:31.415Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:31.416553041Z [PROCESS-BATCH][2025-12-23T18:42:31.416Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":10,"startPage":501,"endPage":550,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:31.416789595Z [PROCESS-BATCH][2025-12-23T18:42:31.416Z] Fetching full document from blob 
+2025-12-23T18:42:31.824201254Z [ASYNC-UPLOAD][2025-12-23T18:42:31.823Z] QStash batch 11 published {"messageId":"msg_7YoJxFpwkEy6sUx4zj1SdVygm9QvLiLXkZ9GFDXf7YikRqWDvfksT","pages":"551-580"}
+2025-12-23T18:42:31.824323271Z [ASYNC-UPLOAD][2025-12-23T18:42:31.824Z] QStash publishing complete {"successful":12,"total":12}
+2025-12-23T18:42:31.824443908Z [ASYNC-UPLOAD][2025-12-23T18:42:31.824Z] SSE: status {"message":"12/12 batches queued","progress":20,"sessionId":"session_1766515337021_y22k43vl5"}
+2025-12-23T18:42:31.824449018Z [ASYNC-UPLOAD][2025-12-23T18:42:31.824Z] Starting polling loop {"maxAttempts":150,"pollInterval":2000}
+2025-12-23T18:42:32.0176937Z [PROCESS-BATCH][2025-12-23T18:42:32.017Z] Full document fetched {"size":6959073,"fetchTime":7597}
+2025-12-23T18:42:32.017722132Z [PROCESS-BATCH][2025-12-23T18:42:32.017Z] Extracting batch pages with pdf-lib {"startPage":51,"endPage":100}
+2025-12-23T18:42:33.321299457Z [PROCESS-BATCH][2025-12-23T18:42:33.321Z] === BATCH REQUEST RECEIVED === 
+2025-12-23T18:42:33.321583533Z [PROCESS-BATCH][2025-12-23T18:42:33.321Z] Batch details {"jobId":"job_1766515340317_d0bb0a","batchIndex":11,"startPage":551,"endPage":580,"totalPages":580,"filename":"integrated-annual-report-2023-24_compressed.pdf"}
+2025-12-23T18:42:33.321678119Z [PROCESS-BATCH][2025-12-23T18:42:33.321Z] Fetching full document from blob 
+2025-12-23T18:42:33.619691017Z [PROCESS-BATCH][2025-12-23T18:42:33.619Z] Full document fetched {"size":6959073,"fetchTime":8800}
+2025-12-23T18:42:33.619724269Z [PROCESS-BATCH][2025-12-23T18:42:33.619Z] Extracting batch pages with pdf-lib {"startPage":251,"endPage":300}
+2025-12-23T18:42:36.228658462Z [PROCESS-BATCH][2025-12-23T18:42:36.228Z] Full document fetched {"size":6959073,"fetchTime":7206}
+2025-12-23T18:42:36.228677923Z [PROCESS-BATCH][2025-12-23T18:42:36.228Z] Extracting batch pages with pdf-lib {"startPage":451,"endPage":500}
+2025-12-23T18:42:37.929970374Z [PROCESS-BATCH][2025-12-23T18:42:37.928Z] Full document fetched {"size":6959073,"fetchTime":12505}
+2025-12-23T18:42:37.929993935Z [PROCESS-BATCH][2025-12-23T18:42:37.928Z] Extracting batch pages with pdf-lib {"startPage":351,"endPage":400}
+2025-12-23T18:42:38.616146882Z [PROCESS-BATCH][2025-12-23T18:42:38.615Z] Full document fetched {"size":6959073,"fetchTime":12592}
+2025-12-23T18:42:38.619566597Z [PROCESS-BATCH][2025-12-23T18:42:38.616Z] Extracting batch pages with pdf-lib {"startPage":301,"endPage":350}
+2025-12-23T18:42:38.721373914Z [PROCESS-BATCH][2025-12-23T18:42:38.721Z] Full document fetched {"size":6959073,"fetchTime":7305}
+2025-12-23T18:42:38.721556085Z [PROCESS-BATCH][2025-12-23T18:42:38.721Z] Extracting batch pages with pdf-lib {"startPage":501,"endPage":550}
+2025-12-23T18:42:40.226573081Z [PROCESS-BATCH][2025-12-23T18:42:40.225Z] Full document fetched {"size":6959073,"fetchTime":11900}
+2025-12-23T18:42:40.226607613Z [PROCESS-BATCH][2025-12-23T18:42:40.226Z] Extracting batch pages with pdf-lib {"startPage":401,"endPage":450}
+2025-12-23T18:42:40.32264573Z [PROCESS-BATCH][2025-12-23T18:42:40.322Z] Full document fetched {"size":6959073,"fetchTime":7001}
+2025-12-23T18:42:40.322669502Z [PROCESS-BATCH][2025-12-23T18:42:40.322Z] Extracting batch pages with pdf-lib {"startPage":551,"endPage":580}
+2025-12-23T18:42:41.119580777Z [ASYNC-UPLOAD][2025-12-23T18:42:41.119Z] Progress update {"jobId":"job_1766515340317_d0bb0a","completed":0,"total":12,"failed":0,"textLen":0,"attempts":1}
+2025-12-23T18:42:41.119913136Z [ASYNC-UPLOAD][2025-12-23T18:42:41.119Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
+2025-12-23T18:42:43.525144589Z [ASYNC-UPLOAD][2025-12-23T18:42:43.524Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
+2025-12-23T18:42:47.726608838Z [ASYNC-UPLOAD][2025-12-23T18:42:47.726Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
+2025-12-23T18:42:50.321775354Z [ASYNC-UPLOAD][2025-12-23T18:42:50.321Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
+2025-12-23T18:42:53.714200055Z [ASYNC-UPLOAD][2025-12-23T18:42:53.627Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
+2025-12-23T18:42:58.216042968Z [ASYNC-UPLOAD][2025-12-23T18:42:58.215Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
+2025-12-23T18:43:03.921606851Z [ASYNC-UPLOAD][2025-12-23T18:43:03.921Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
+2025-12-23T18:43:07.535137136Z [ASYNC-UPLOAD][2025-12-23T18:43:07.534Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
+2025-12-23T18:43:29.454355215Z [ASYNC-UPLOAD][2025-12-23T18:43:29.278Z] SSE: status {"message":"Extracting: 0/12 batches","progress":20,"sessionId":"session_1766515337021_y22k43vl5","completed":0,"total":12,"textLength":0}
