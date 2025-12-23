@@ -13,18 +13,32 @@ const log = (step: string, data?: object) => {
 };
 
 function getStableCallbackUrl(): string {
-  const prodUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  
-  if (prodUrl) {
-    log("Using PRODUCTION URL for callbacks", { prodUrl });
-    return `https://${prodUrl}/api/process-batch`;
+  // Render provides this automatically
+  const renderUrl = process.env.RENDER_EXTERNAL_URL;
+  if (renderUrl) {
+    log("Using RENDER URL for callbacks", { renderUrl });
+    return `${renderUrl}/api/process-batch`;
   }
   
+  // Vercel production URL
+  const vercelUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (vercelUrl) {
+    log("Using VERCEL URL for callbacks", { vercelUrl });
+    return `https://${vercelUrl}/api/process-batch`;
+  }
+  
+  // Development
   if (process.env.NODE_ENV === "development") {
     return "http://localhost:3000/api/process-batch";
   }
   
-  throw new Error("VERCEL_PROJECT_PRODUCTION_URL not set - deploy to production first!");
+  // Fallback: Use the app's own URL
+  const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (appUrl) {
+    return `${appUrl}/api/process-batch`;
+  }
+  
+  throw new Error("No callback URL configured - set RENDER_EXTERNAL_URL, VERCEL_PROJECT_PRODUCTION_URL, or APP_URL");
 }
 
 function getRedisClient(): Redis {
