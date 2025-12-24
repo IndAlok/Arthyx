@@ -36,8 +36,18 @@ export interface SessionData {
   lastActive: number;
 }
 
+export interface JobStatus {
+  status: "pending" | "processing" | "completed" | "failed";
+  progress: number;
+  message: string;
+  result?: any;
+  error?: string;
+  updatedAt: number;
+}
+
 const SESSION_TTL = 24 * 60 * 60;
 const CACHE_TTL = 3600;
+const JOB_TTL = 3600; // 1 hour
 
 export async function getSession(sessionId: string): Promise<SessionData | null> {
   const client = getRedisClient();
@@ -138,6 +148,35 @@ export async function getCachedEmbedding(textHash: string): Promise<number[] | n
 export async function setCachedEmbedding(textHash: string, embedding: number[]): Promise<void> {
   const client = getRedisClient();
   await client.setex(`embed:${textHash}`, CACHE_TTL * 24, embedding);
+}
+
+export async function updateJobStatus(jobId: string, status: Partial<JobStatus>): Promise<void> {
+  const client = getRedisClient();
+  const currentKey = `job:${jobId}`;
+  
+  const current = await client.get<JobStatus>(currentKey) || {
+    status: "pending",
+    progress: 0,
+    message: "Initializing...",
+    updatedAt: Date.now()
+  };
+  
+  const updated: JobStatus = {
+    ...current,
+    ...status,
+    updatedAt: Date.now()
+  };
+  
+  await client.setex(currentKey, JOB_TTL, updated);
+  // Only log significant status changes to avoid noise
+  if (status.status && status.status !== current.status) {
+    log("Job status updated", { jobId, status: status.status, progress: status.progress });
+  }
+}
+
+export async function getJobStatus(jobId: string): Promise<JobStatus | null> {
+  const client = getRedisClient();
+  return await client.get<JobStatus>(`job:${jobId}`);
 }
 
 export function createHash(text: string): string {

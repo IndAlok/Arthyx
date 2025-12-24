@@ -63,7 +63,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     console.log(`[FileUpload] Starting direct processing for ${filename}`);
     console.log(`[FileUpload] Blob URL: ${blobUrl.substring(0, 80)}...`);
     
-    updateStatus("Processing document (this may take 2-5 minutes for large files)...", 15);
+    updateStatus("Initiating processing job...", 5);
     
     const response = await fetch("/api/direct-upload", {
       method: "POST",
@@ -76,20 +76,47 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
       throw new Error(`Upload failed: ${response.status} - ${errorText}`);
     }
 
-    const result = await response.json();
+    const { success, jobId, error } = await response.json();
     
-    console.log(`[FileUpload] Processing complete:`, result);
-    
-    if (!result.success) {
-      throw new Error(result.error || "Processing failed");
+    if (!success || !jobId) {
+      throw new Error(error || "Failed to start job");
     }
     
-    updateStatus(`Processed ${result.pages} pages, ${result.chunks} chunks indexed`, 95);
-    
-    return {
-      sessionId: result.sessionId,
-      pages: result.pages || 0,
-    };
+    console.log(`[FileUpload] Job started: ${jobId}`);
+    updateStatus("Processing queued...", 10);
+
+    // Poll for status
+    let pollCount = 0;
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      pollCount++;
+      
+      const statusRes = await fetch(`/api/job-status?jobId=${jobId}`);
+      if (!statusRes.ok) continue; // Retry silently on status fetch error
+      
+      const statusData = await statusRes.json();
+      console.log(`[FileUpload] Poll ${pollCount}:`, statusData);
+      
+      if (statusData.status === "failed") {
+        throw new Error(statusData.error || "Processing failed");
+      }
+      
+      if (statusData.status === "completed") {
+        updateStatus("Complete!", 100);
+        return {
+          sessionId: statusData.result.sessionId,
+          pages: statusData.result.pages,
+        };
+      }
+      
+      // Update progress
+      updateStatus(statusData.message || "Processing...", statusData.progress || 10);
+      
+      // Timeout safety (20 minutes)
+      if (pollCount > 600) {
+        throw new Error("Processing timeout - job took too long");
+      }
+    }
   };
 
   const processSmallFile = async (
