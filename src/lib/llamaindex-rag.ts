@@ -88,7 +88,7 @@ export async function queryWithLlamaIndex(
     1. **Synthesize**: Don't just quote chunks. Combine information from multiple pages to tell the full story.
     2. **Precision**: Quote exact numbers, ratios, and dates.
     3. **Citations**: STRICTLY format citations as **[Page X]**. Do not use "Source 1".
-    4. **Tone**: Professional, objective, for quantitative recruiters and analysts.
+    4. **Tone**: Professional, objective, for quantitative analysts.
     5. **Tables**: If data is tabular, output clean Markdown tables.
 
     CONTEXT FROM DOCUMENTS:

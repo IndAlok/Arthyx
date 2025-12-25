@@ -216,7 +216,7 @@ export default function Home() {
           <div className="max-w-4xl mx-auto text-center">
              <h2 className="text-4xl md:text-5xl font-bold text-white mb-8">
                 Open Source & <br />
-                <span className="text-slate-500">Ready for Wall Street.</span>
+                <span className="text-slate-500">Ready for Institutional Finance.</span>
             </h2>
              <div className="flex flex-wrap justify-center gap-4 mb-12">
                 <a href="https://github.com/IndAlok/Arthyx/fork" target="_blank" className="flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 transition-colors">

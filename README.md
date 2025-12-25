@@ -2,7 +2,7 @@
 
 Arthyx is an advanced, industry-grade autonomous agent tailored for quantitative financial analysis. Its name is derived from the Sanskrit word "Arth", signifying Meaning, Wealth, and Finance, reflecting its core mission: to derive actionable financial intelligence from complex unstructured data.
 
-Unlike standard retrieval-augmented generation (RAG) systems that function as simple document summarizers, Arthyx is engineered as a comprehensive analytical platform. It integrates semantic search, probabilistic reasoning, and rigid regulatory frameworks to perform work equivalent to a human quantitative analyst. It is designed to impress by handling the rigor of institutional finance, including Basel III norms, RBI regulations, and credit risk modeling.
+Unlike standard retrieval-augmented generation (RAG) systems that function as simple document summarizers, Arthyx is engineered as a comprehensive analytical platform. It integrates semantic search, probabilistic reasoning, and rigid regulatory frameworks to perform work equivalent to a human quantitative analyst. It is designed to rigorously handle the complexity of institutional finance, including Basel III norms, RBI regulations, and credit risk modeling.
 
 ## Unique Value Proposition
 
