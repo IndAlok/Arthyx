@@ -1,12 +1,8 @@
 import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
-import { getRelevantKnowledge, FULL_KNOWLEDGE_BASE } from "./knowledge-base";
+import { getRelevantKnowledge } from "./knowledge-base";
 import { getCachedResponse, setCachedResponse, getCachedEmbedding, setCachedEmbedding, createHash } from "./redis";
 
 let genAI: GoogleGenerativeAI | null = null;
-
-const log = (step: string, data?: object) => {
-  console.log(`[GEMINI] ${step}`, data ? JSON.stringify(data) : "");
-};
 
 function getClient(): GoogleGenerativeAI {
   if (!genAI) {
@@ -24,7 +20,6 @@ export function getChatModel(): GenerativeModel {
 }
 
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  log("Generating embeddings", { count: texts.length });
   const model = getEmbeddingModel();
   const embeddings: number[][] = [];
   const startTime = Date.now();
@@ -45,16 +40,10 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
       embeddings.push(result.embedding.values);
       await setCachedEmbedding(textHash, result.embedding.values);
     } catch (error) {
-      log("Embedding error", { index: i, error: String(error) });
       embeddings.push(new Array(768).fill(0));
     }
   }
 
-  log("Embeddings complete", { 
-    count: embeddings.length, 
-    duration: Date.now() - startTime 
-  });
-  
   return embeddings;
 }
 
@@ -152,14 +141,7 @@ export async function generateChatResponse(
   documentFilenames: string[],
   hasDocuments: boolean
 ): Promise<ChatResponse> {
-  log("Generating chat response", { 
-    messageCount: messages.length,
-    sourceCount: sources.length,
-    hasDocuments 
-  });
-  
   const model = getChatModel();
-  const startTime = Date.now();
   
   const lastMessage = messages[messages.length - 1]?.content || "";
   
@@ -167,7 +149,6 @@ export async function generateChatResponse(
   const cachedResponse = await getCachedResponse(cacheKey);
   
   if (cachedResponse && !hasDocuments) {
-    log("Using cached response");
     return JSON.parse(cachedResponse);
   }
   
@@ -206,19 +187,13 @@ Provide a comprehensive, well-formatted response with visual analysis when appro
     const result = await model.generateContent(fullPrompt);
     const responseText = result.response.text();
 
-    log("Response generated", { 
-      duration: Date.now() - startTime,
-      responseLength: responseText.length 
-    });
-
     let chartConfig = undefined;
     const chartMatch = responseText.match(/```chart\n?([\s\S]*?)```/);
     if (chartMatch) {
       try {
         chartConfig = JSON.parse(chartMatch[1].trim());
-        log("Chart config extracted", { type: chartConfig.type });
       } catch {
-        log("Chart parse error");
+        // Silent failure
       }
     }
 
@@ -227,9 +202,8 @@ Provide a comprehensive, well-formatted response with visual analysis when appro
     if (riskMatch) {
       try {
         riskAnalysis = JSON.parse(riskMatch[1].trim());
-        log("Risk analysis extracted");
       } catch {
-        log("Risk parse error");
+        // Silent failure
       }
     }
 
@@ -238,9 +212,8 @@ Provide a comprehensive, well-formatted response with visual analysis when appro
     if (metricsMatch) {
       try {
         metrics = JSON.parse(metricsMatch[1].trim());
-        log("Metrics extracted");
       } catch {
-        log("Metrics parse error");
+        // Silent failure
       }
     }
 
@@ -304,7 +277,6 @@ Provide a comprehensive, well-formatted response with visual analysis when appro
 
     return response;
   } catch (error) {
-    log("Chat error", { error: String(error) });
     throw error;
   }
 }
@@ -312,6 +284,5 @@ Provide a comprehensive, well-formatted response with visual analysis when appro
 export async function generateWithoutDocuments(
   messages: ChatMessage[]
 ): Promise<ChatResponse> {
-  log("Generating response without documents");
   return generateChatResponse(messages, [], [], false);
 }

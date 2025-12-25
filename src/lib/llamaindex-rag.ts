@@ -1,11 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Pinecone } from "@pinecone-database/pinecone";
 
-const log = (step: string, data?: object) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[LLAMAINDEX][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
-};
-
 export interface RAGQueryResult {
   response: string;
   sources: RAGSource[];
@@ -44,8 +39,6 @@ export async function queryWithLlamaIndex(
   options: { topK?: number; includeMetadata?: boolean } = {}
 ): Promise<RAGQueryResult> {
   const { topK = 15, includeMetadata = true } = options;
-
-  log("Starting RAG query", { query: query.substring(0, 50), sessionId, topK });
   const startTime = Date.now();
 
   try {
@@ -67,8 +60,6 @@ export async function queryWithLlamaIndex(
       score: match.score || 0,
       type: ((match.metadata?.type as string) || "text") as "text" | "table",
     })) || [];
-
-    log("Retrieved sources", { count: sources.length, topScore: sources[0]?.score });
 
     if (sources.length === 0) {
       return {
@@ -112,20 +103,12 @@ export async function queryWithLlamaIndex(
       ? sources.reduce((sum, s) => sum + s.score, 0) / sources.length 
       : 0;
 
-    log("Query complete", {
-      sources: sources.length,
-      responseLength: response.length,
-      avgScore: avgScore.toFixed(3),
-      duration: Date.now() - startTime,
-    });
-
     return {
       response,
       sources,
       confidence: avgScore,
     };
   } catch (error) {
-    log("Query error", { error: String(error) });
     return {
       response: "",
       sources: [],

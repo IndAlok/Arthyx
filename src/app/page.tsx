@@ -219,18 +219,18 @@ export default function Home() {
                 <span className="text-slate-500">Ready for Wall Street.</span>
             </h2>
              <div className="flex flex-wrap justify-center gap-4 mb-12">
-                <a href="https://github.com/IndAlok/Arthyx" target="_blank" className="flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 transition-colors">
+                <a href="https://github.com/IndAlok/Arthyx/fork" target="_blank" className="flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 transition-colors">
                     <GitFork className="w-4 h-4" />
                     Fork Repository
                 </a>
-                 <a href="https://github.com/IndAlok/Arthyx" target="_blank" className="flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 transition-colors">
+                 <a href="https://github.com/IndAlok/Arthyx/stargazers" target="_blank" className="flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-800 text-white font-medium hover:bg-slate-700 transition-colors">
                     <Github className="w-4 h-4" />
                     Star Project
                 </a>
             </div>
             
             <p className="text-slate-500 text-sm">
-                &copy; {new Date().getFullYear()} Arthyx Intelligence. Designed by <span className="text-emerald-500">Alok</span> for the Future of Finance.
+                &copy; {new Date().getFullYear()} Arthyx Intelligence. Engineered by <a href="https://github.com/IndAlok" target="_blank" className="text-emerald-500 hover:text-emerald-400 transition-colors">IndAlok</a>.
             </p>
           </div>
         </section>

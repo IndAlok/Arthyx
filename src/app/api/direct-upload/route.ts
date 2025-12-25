@@ -6,11 +6,6 @@ import { createSession, addDocument, updateJobStatus } from "@/lib/redis";
 
 export const maxDuration = 300;
 
-const log = (step: string, data?: object) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[DIRECT-UPLOAD][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
-};
-
 const BATCH_SIZE = 50; 
 const CHUNK_SIZE = 3000; 
 const DELAY_BETWEEN_BATCHES = 2000; 
@@ -54,7 +49,6 @@ async function withRetry<T>(
       if (attempt === retries) throw error;
       const baseDelay = isRateLimit ? 30000 : 2000;
       const delay = baseDelay * attempt;
-      log(`${operation} failed, retrying in ${delay}ms`, { attempt, error: String(error).substring(0, 100) });
       await sleep(delay);
     }
   }
@@ -176,7 +170,7 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
           await sleep(DELAY_BETWEEN_BATCHES);
         }
       } catch (batchError) {
-        console.error(`Batch ${batchIdx + 1} failed`, batchError);
+        // Silent failure for batch to maintain process continuity
       }
     }
 
@@ -196,7 +190,6 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
     });
 
   } catch (error) {
-    log(`Job ${jobId} failed`, { error: String(error) });
     await updateJobStatus(jobId, { 
       status: "failed", 
       error: String(error),
@@ -229,7 +222,7 @@ export async function POST(request: NextRequest) {
     });
 
     processDocumentBackground(jobId, blobUrl, filename, sessionId).catch(err => {
-      console.error("Background process fatal error:", err);
+      // Background fatal errors are caught here
     });
 
     return NextResponse.json({

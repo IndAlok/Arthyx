@@ -8,15 +8,9 @@ import { queryWithLlamaIndex } from "@/lib/llamaindex-rag";
 
 export const maxDuration = 30;
 
-const log = (step: string, data?: object) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[CHAT][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
-};
-
 export async function POST(request: NextRequest) {
   try {
     const { message, sessionId, isEdit, originalMessageId } = await request.json();
-    log("Chat request", { sessionId, messageLength: message?.length, isEdit });
 
     if (!message) {
       return NextResponse.json(
@@ -33,22 +27,13 @@ export async function POST(request: NextRequest) {
 
     if (sessionId) {
       session = await getSession(sessionId);
-      log("Session lookup", { 
-        sessionId, 
-        found: !!session, 
-        documents: session?.documents?.length || 0,
-        messages: session?.messages?.length || 0
-      });
       
       if (session && session.documents && session.documents.length > 0) {
         hasDocuments = true;
         documentFilenames = session.documents;
-        log("Documents found", { documents: documentFilenames });
 
-        log("Generating query embedding");
         const [queryEmbedding] = await generateEmbeddings([message]);
 
-        log("Querying Pinecone with session filter");
         const searchResults = await queryDocuments(queryEmbedding, sessionId, 25);
 
         sources = searchResults.map((result) => {
@@ -70,10 +55,7 @@ export async function POST(request: NextRequest) {
           };
         });
 
-        log("Sources retrieved", { count: sources.length, topScore: sources[0]?.relevanceScore });
-
         try {
-          log("Trying LlamaIndex enhanced query");
           const llamaResult = await queryWithLlamaIndex(message, sessionId, { topK: 5 });
           
           if (llamaResult.sources.length > 0) {
@@ -92,29 +74,17 @@ export async function POST(request: NextRequest) {
                 sources.push(ls);
               }
             }
-            
-            log("LlamaIndex sources merged", { 
-              llamaCount: llamaResult.sources.length, 
-              totalSources: sources.length,
-              confidence: llamaResult.confidence.toFixed(3)
-            });
           }
         } catch (llamaError) {
-          log("LlamaIndex query skipped", { error: String(llamaError) });
+          // Continue without LlamaIndex sources if error
         }
 
         try {
           graphData = await getSessionGraph(sessionId);
-          log("Knowledge graph retrieved", { 
-            nodes: graphData.nodes.length, 
-            edges: graphData.edges.length 
-          });
         } catch (graphError) {
-          log("Graph retrieval skipped", { error: String(graphError) });
+          // Continue without graph data if error
         }
-      } else {
-        log("No documents in session", { sessionId, sessionExists: !!session });
-      }
+      } 
     }
 
     const history: ChatMessage[] = [];
@@ -131,8 +101,6 @@ export async function POST(request: NextRequest) {
     }
     
     history.push({ role: "user", content: message });
-
-    log("Generating response", { hasDocuments, historyLength: history.length });
     
     const result = hasDocuments
       ? await generateChatResponse(history, sources, documentFilenames, true)
@@ -190,15 +158,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    log("Response complete", { 
-      responseLength: result.response.length,
-      sourcesCount: result.citedSources.length,
-      hasChart: !!result.chartConfig,
-      hasRisk: !!(result.riskAnalysis || additionalRiskAnalysis),
-      hasMetrics: !!(result.metrics || additionalMetrics),
-      hasDocumentContext: result.hasDocumentContext
-    });
-
     return NextResponse.json({
       success: true,
       response: result.response,
@@ -217,7 +176,6 @@ export async function POST(request: NextRequest) {
       documentsAvailable: documentFilenames,
     });
   } catch (error) {
-    log("Chat error", { error: String(error) });
     return NextResponse.json(
       { error: "Failed to process message", details: String(error) },
       { status: 500 }

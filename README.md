@@ -1,81 +1,92 @@
-# Arthyx 💹
-**Autonomous Quantitative Financial Analyst | Powered by Gemini 2.0 & Knowledge Graphs**
+# Arthyx: Autonomous Quantitative Financial Analyst
 
-![Arthyx Banner](public/logo.png)
+Arthyx is an advanced, industry-grade autonomous agent tailored for quantitative financial analysis. Its name is derived from the Sanskrit word "Arth", signifying Meaning, Wealth, and Finance, reflecting its core mission: to derive actionable financial intelligence from complex unstructured data.
 
-> *"Arth"* (Sanskrit: Meaning, Wealth, Finance) + *"Analytical Efficiency"*.
+Unlike standard retrieval-augmented generation (RAG) systems that function as simple document summarizers, Arthyx is engineered as a comprehensive analytical platform. It integrates semantic search, probabilistic reasoning, and rigid regulatory frameworks to perform work equivalent to a human quantitative analyst. It is designed to impress by handling the rigor of institutional finance, including Basel III norms, RBI regulations, and credit risk modeling.
 
-**Arthyx** is an industry-grade autonomous financial agent designed to process, analyze, and audit complex financial documents at scale. Unlike standard RAG chatbots, Arthyx combines **Semantic Search**, **Knowledge Graphs**, and **Quantitative Risk Modeling** to deliver institutional-grade insights from Annual Reports, BASEL III filings, and Regulatory Frameworks (RBI/SEBI).
+## Unique Value Proposition
+
+Arthyx stands apart through its hybrid architecture that combines the creative reasoning of Large Language Models with the deterministic accuracy of Knowledge Graphs and Quantitative Models.
+
+### Deep Contextual Understanding
+Most RAG systems retrieve small, fragmented snippets of text (200-500 characters), leading to hallucinated or incomplete answers. Arthyx employs a "Deep Context" engine that retrieves massive 3000-character chunks and aggregates the top-15 most relevant sections. This allows it to "read" approximately 15-20 full pages of text before generating an answer, ensuring that every response is synthesized from a comprehensive understanding of the document rather than isolated keywords.
+
+### High-Fidelity Visual Analysis
+Arthyx automatically detects numerical trends in financial data and generates precise, interactive visualizations. Whether it is a 5-year comparison of Non-Performing Assets (NPA) or a breakdown of Capital Adequacy Ratios (CRAR), the system visualizes the data instantly. These charts are dynamic and state-aware; editing a previous query automatically recalculates the underlying data and redraws the visualization to reflect the new context, ensuring perfect synchronization between conversation history and visual output.
+
+### Knowledge Graph Auditing
+Beyond simple text search, Arthyx maps entities (companies, directors, subsidiaries) into a Neo4j Knowledge Graph. This allows it to uncover hidden relationships, conflicts of interest, and risk contagion paths that purely vector-based systems would miss. It effectively performs a "Knowledge Audit" on every uploaded document.
+
+### Quantitative Risk Modeling
+The system includes a dedicated risk engine that extracts financial ratios from unstructured text and evaluates them against encoded regulatory standards (Basel III, RBI Master Directions). It calculates scores for Credit Risk, Market Risk, and Operational Risk, providing a structured quantitative assessment alongside the qualitative text analysis.
+
+### Specialized Indian Language OCR
+Recognizing the diverse landscape of Indian finance, Arthyx features a specialized OCR pipeline fine-tuned for Indian languages. It achieves high accuracy on Hindi, Tamil, Bengali, Gujrati, and Telugu scripts, making it the only open-source financial agent capable of auditing regional vernacular records with the same precision as English documents.
+
+## Technical Architecture
+
+The system is built on a production-ready stack designed for scale, speed, and type safety.
+
+**Core Intelligence**
+- **Google Gemini 2.0 Flash**: Selected for its massive context window and reasoning capabilities.
+- **text-embedding-004**: High-dimensional vectorization for semantic nuance.
+
+**Data Infrastructure**
+- **Pinecone Serverless**: Low-latency vector retrieval (<50ms).
+- **Neo4j AuraDB**: Graph database for entity relationship modeling.
+- **Upstash Redis**: High-performance caching for session state and async job queues.
+
+**Application Layer**
+- **Next.js 15 (Turbopack)**: React Server Components and Edge handling.
+- **Async Polling Architecture**: A robust job-queue system that handles massive 500+ page PDFs without HTTP timeouts, ensuring 100% reliability for large annual reports.
+
+## Installation and Deployment
+
+Arthyx is open-source and ready for deployment on any Node.js compatible environment.
+
+### Prerequisites
+- Node.js 18+
+- Accounts for Google AI, Pinecone, Upstash, and Neo4j.
+
+### Local Development
+
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/IndAlok/Arthyx.git
+    cd Arthyx
+    ```
+
+2.  **Install Dependencies**
+    ```bash
+    npm install --legacy-peer-deps
+    ```
+
+3.  **Configure Environment**
+    Create a `.env.local` file with your credentials:
+    ```env
+    GOOGLE_API_KEY=your_key
+    PINECONE_API_KEY=your_key
+    NEO4J_URI=your_uri
+    NEO4J_USERNAME=your_username
+    NEO4J_PASSWORD=your_password
+    UPSTASH_REDIS_REST_URL=your_url
+    UPSTASH_REDIS_REST_TOKEN=your_token
+    ```
+
+4.  **Launch Application**
+    ```bash
+    npm run dev
+    ```
+
+## Contributing
+
+We welcome contributions from engineers passionate about quantitative finance and AI. To contribute:
+
+1.  Fork the repository.
+2.  Create a feature branch for your specific improvement.
+3.  Commit your changes with clear, semantic messages.
+4.  Submit a Pull Request detailing the technical implementation.
 
 ---
 
-## 🚀 Why Arthyx?
-In the world of quantitative finance, context is everything. Standard LLMs hallucinate numbers and miss subtle regulatory nuances. Arthyx solves this by treating financial documents not just as text, but as **structured data networks**.
-
-*   **⚡ Blazing Fast Extraction**: Processes 500+ page PDFs in seconds using parallelized embedding pipelines.
-*   **🧠 Deep Context RAG**: Retrieves 40k+ characters of context per query using Gemini 2.0 Flash's massive window.
-*   **🇮🇳 specialized for India**: Fine-tuned OCR for Hindi, Tamil, Bengali, & Gujarati financial scripts.
-*   **🕸️ Knowledge Graph Auditing**: Detects hidden relationships (shell companies, director conflicts) using Neo4j.
-
----
-
-## 🛠️ Tech Stack (Production Grade)
-Built on a high-performance, type-safe stack designed for reliability and scale.
-
-*   **Intelligence**: Google Gemini 2.0 Flash (Reasoning), `text-embedding-004` (Vectorization).
-*   **Vector Database**: Pinecone Serverless (p2) for <50ms semantic retrieval.
-*   **Graph Database**: Neo4j AuraDB for entity relationship modeling.
-*   **Caching & State**: Upstash Redis for session management and job queues.
-*   **Frontend**: Next.js 15 (Turbopack), TailwindCSS, Framer Motion (60fps animations).
-*   **Infrastructure**: Render (Node.js Worker Streams), Vercel Blob.
-
----
-
-## 🔮 Key Capabilities
-
-### 1. The "Deep-Dive" Engine
-Arthyx doesn't just read summaries. It indexes full document chunks (3000 chars) and retrieves 15-20 distinct sections to synthesize answers with **complete context**. It cites page numbers strictly, like a human analyst.
-
-### 2. Quantitative Risk Modeling
-Automatically extracts financial ratios (NPA, CRAR, RoA) and runs them against **Basel III** and **RBI** norms to generate instant credit risk scores.
-
-### 3. Asynchronous Job Processing
-Handles 100MB+ PDFs via a robust Async Polling architecture. No timeouts. No failures. Just progress bars and results.
-
----
-
-## 📦 Installation & Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/IndAlok/Arthyx.git
-
-# Install dependencies (Legacy Peer Deps for Neo4j compatibility)
-npm install --legacy-peer-deps
-
-# Run Development Server
-npm run dev
-```
-
-### Environment Config
-Create a `.env.local` file with the following keys:
-```env
-GOOGLE_API_KEY=...
-PINECONE_API_KEY=...
-NEO4J_URI=...
-UPSTASH_REDIS_REST_URL=...
-```
-
----
-
-## 🤝 Contribution
-Arthyx is open-source software. We welcome contributions from efficient engineers and domain experts.
-1.  Fork the Project
-2.  Create your Feature Branch (`git checkout -b feature/QuantRisk`)
-3.  Commit your Changes (`git commit -m 'Add: Monte Carlo Simulation'`)
-4.  Push to the Branch (`git push origin feature/QuantRisk`)
-5.  Open a Pull Request
-
----
-
-*Designed and engineered by [Alok] for the future of Algorithmic Finance.*
+**Engineered by [IndAlok](https://github.com/IndAlok)** | *Algorithmic Financial Intelligence for the Specialist.*
