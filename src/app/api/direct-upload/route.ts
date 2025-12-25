@@ -11,10 +11,10 @@ const log = (step: string, data?: object) => {
   console.log(`[DIRECT-UPLOAD][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
 };
 
-const BATCH_SIZE = 25;
+const BATCH_SIZE = 10;
 const CHUNK_SIZE = 500;
-const DELAY_BETWEEN_BATCHES = 5000;
-const MAX_RETRIES = 3;
+const DELAY_BETWEEN_BATCHES = 10000;
+const MAX_RETRIES = 5;
 
 function chunkText(text: string): string[] {
   const chunks: string[] = [];
@@ -52,7 +52,11 @@ async function withRetry<T>(
     } catch (error) {
       const isRateLimit = String(error).includes("429") || String(error).includes("Resource exhausted");
       if (attempt === retries) throw error;
-      const delay = isRateLimit ? 10000 * attempt : 2000 * attempt;
+      
+      // Much more aggressive backoff for rate limits: 30s, 60s, 90s, 120s...
+      const baseDelay = isRateLimit ? 30000 : 2000;
+      const delay = baseDelay * attempt;
+      
       log(`${operation} failed, retrying in ${delay}ms`, { attempt, error: String(error).substring(0, 100) });
       await sleep(delay);
     }
