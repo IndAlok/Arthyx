@@ -11,9 +11,9 @@ const log = (step: string, data?: object) => {
   console.log(`[DIRECT-UPLOAD][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
 };
 
-const BATCH_SIZE = 50; // Larger batches = fewer requests = faster & less RPM hits
-const CHUNK_SIZE = 500;
-const DELAY_BETWEEN_BATCHES = 2000; // Minimal delay
+const BATCH_SIZE = 50; 
+const CHUNK_SIZE = 3000; 
+const DELAY_BETWEEN_BATCHES = 2000; 
 const MAX_RETRIES = 5;
 
 function chunkText(text: string): string[] {
@@ -52,11 +52,8 @@ async function withRetry<T>(
     } catch (error) {
       const isRateLimit = String(error).includes("429") || String(error).includes("Resource exhausted");
       if (attempt === retries) throw error;
-      
-      // Much more aggressive backoff for rate limits: 30s, 60s, 90s, 120s...
       const baseDelay = isRateLimit ? 30000 : 2000;
       const delay = baseDelay * attempt;
-      
       log(`${operation} failed, retrying in ${delay}ms`, { attempt, error: String(error).substring(0, 100) });
       await sleep(delay);
     }
@@ -70,7 +67,6 @@ async function generateEmbedding(text: string, genAI: GoogleGenerativeAI): Promi
     const result = await model.embedContent(text);
     return result.embedding.values;
   } catch (e) {
-    // Retry once immediately for embeddings
     await sleep(1000);
     const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
     const result = await model.embedContent(text);
@@ -143,14 +139,10 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
       });
       
       try {
-        // 1. Extract Text
         const batchText = await extractBatchWithGemini(pdfDoc, startPage, endPage, genAI);
         allText += `\n\n=== BATCH ${batchIdx + 1}: PAGES ${startPage + 1}-${endPage} ===\n\n${batchText}`;
-        
-        // 2. Chunk
         const chunks = chunkText(batchText);
         
-        // 3. Parallel Embeddings with Concurrency Limit (e.g., 5 at a time)
         const batchVectors = [];
         for (let i = 0; i < chunks.length; i += 5) {
           const chunkBatch = chunks.slice(i, i + 5);
@@ -160,10 +152,10 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
               id: `${sessionId}_b${batchIdx}_c${i + idx}`,
               values: embedding,
               metadata: {
-                text: chunk.substring(0, 1000),
-                content: chunk.substring(0, 1000),
+                text: chunk.substring(0, 8000), 
+                content: chunk.substring(0, 8000),
                 filename,
-                pageNumber: startPage + 1, // simplified page mapping for speed
+                pageNumber: startPage + 1,
                 sessionId,
                 batchIndex: batchIdx,
               },
@@ -172,25 +164,19 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
           
           const results = await Promise.all(promises);
           batchVectors.push(...results);
-          // Small breathing room for embedding API
           await sleep(200); 
         }
 
-        // 4. Batch Upsert to Pinecone (Pinecone handles large batches well)
-        // Split into chunks of 100 for Pinecone safety
         for (let i = 0; i < batchVectors.length; i += 100) {
            await index.upsert(batchVectors.slice(i, i + 100));
         }
         totalChunks += batchVectors.length;
         
-        // Minimal delay between batches
         if (batchIdx < numBatches - 1) {
           await sleep(DELAY_BETWEEN_BATCHES);
         }
       } catch (batchError) {
         console.error(`Batch ${batchIdx + 1} failed`, batchError);
-        // Continue to next batch instead of failing completely? 
-        // User wants "complete context", so retrying within extract is better (already handled).
       }
     }
 
@@ -208,7 +194,6 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
         duration,
       }
     });
-    log(`Job ${jobId} completed successfully`);
 
   } catch (error) {
     log(`Job ${jobId} failed`, { error: String(error) });
@@ -237,14 +222,12 @@ export async function POST(request: NextRequest) {
     }
     await addDocument(sessionId, filename);
 
-    // Initialize job status
     await updateJobStatus(jobId, {
       status: "pending",
       progress: 0,
       message: "Job initialized"
     });
 
-    // Start background processing WITHOUT awaiting
     processDocumentBackground(jobId, blobUrl, filename, sessionId).catch(err => {
       console.error("Background process fatal error:", err);
     });

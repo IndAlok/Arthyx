@@ -43,7 +43,7 @@ export async function queryWithLlamaIndex(
   sessionId: string,
   options: { topK?: number; includeMetadata?: boolean } = {}
 ): Promise<RAGQueryResult> {
-  const { topK = 5, includeMetadata = true } = options;
+  const { topK = 15, includeMetadata = true } = options;
 
   log("Starting RAG query", { query: query.substring(0, 50), sessionId, topK });
   const startTime = Date.now();
@@ -85,19 +85,25 @@ export async function queryWithLlamaIndex(
     const genAI = getGeminiClient();
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-    const systemPrompt = `You are an expert financial analyst assistant. Answer questions based ONLY on the provided context from financial documents.
+    const systemPrompt = `You are Arthyx, a senior quantitative financial analyst. 
+    Analyze the question based COMREHENSIVELY on the provided document context.
 
-RULES:
-1. Always cite sources with [Page X] format
-2. For numerical data, quote exact figures from the document
-3. If the answer is not in the context, say "I couldn't find this information in the uploaded documents"
-4. For tables, present data in markdown format
-5. Be precise with financial metrics (NPA, CAR, ROE, etc.)
+    CONTEXT GUIDELINES:
+    1. The context provided below contains raw text extractions from PDFs. 
+    2. Ignore artifacts like "=== BATCH X ===" or "Markdown | Format". Focus on the content.
+    3. You have access to distinct chunks from various pages (e.g. [Page X]). Synthesize them into a complete answer.
 
-CONTEXT FROM DOCUMENTS:
-${context}
+    ANSWERING RULES:
+    1. **Synthesize**: Don't just quote chunks. Combine information from multiple pages to tell the full story.
+    2. **Precision**: Quote exact numbers, ratios, and dates.
+    3. **Citations**: STRICTLY format citations as **[Page X]**. Do not use "Source 1".
+    4. **Tone**: Professional, objective, for quantitative recruiters and analysts.
+    5. **Tables**: If data is tabular, output clean Markdown tables.
 
-USER QUESTION: ${query}`;
+    CONTEXT FROM DOCUMENTS:
+    ${context}
+
+    USER QUESTION: ${query}`;
 
     const result = await model.generateContent(systemPrompt);
     const response = result.response.text();
