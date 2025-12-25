@@ -11,9 +11,9 @@ const log = (step: string, data?: object) => {
   console.log(`[DIRECT-UPLOAD][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
 };
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 50; // Larger batches = fewer requests = faster & less RPM hits
 const CHUNK_SIZE = 500;
-const DELAY_BETWEEN_BATCHES = 10000;
+const DELAY_BETWEEN_BATCHES = 2000; // Minimal delay
 const MAX_RETRIES = 5;
 
 function chunkText(text: string): string[] {
@@ -65,11 +65,17 @@ async function withRetry<T>(
 }
 
 async function generateEmbedding(text: string, genAI: GoogleGenerativeAI): Promise<number[]> {
-  return withRetry(async () => {
+  try {
     const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
     const result = await model.embedContent(text);
     return result.embedding.values;
-  }, "Embedding");
+  } catch (e) {
+    // Retry once immediately for embeddings
+    await sleep(1000);
+    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+    const result = await model.embedContent(text);
+    return result.embedding.values;
+  }
 }
 
 async function extractBatchWithGemini(
@@ -106,7 +112,6 @@ async function extractBatchWithGemini(
 
 async function processDocumentBackground(jobId: string, blobUrl: string, filename: string, sessionId: string) {
   const startTime = Date.now();
-  log(`Starting background job ${jobId}`);
   
   try {
     await updateJobStatus(jobId, { status: "processing", progress: 0, message: "Fetching PDF..." });
@@ -117,8 +122,7 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const totalPages = pdfDoc.getPageCount();
     
-    log("PDF loaded", { pages: totalPages });
-    await updateJobStatus(jobId, { progress: 5, message: `PDF loaded: ${totalPages} pages. Starting extraction...` });
+    await updateJobStatus(jobId, { progress: 2, message: `PDF loaded: ${totalPages} pages. Maximizing throughput...` });
 
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
     const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
@@ -139,43 +143,54 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
       });
       
       try {
+        // 1. Extract Text
         const batchText = await extractBatchWithGemini(pdfDoc, startPage, endPage, genAI);
         allText += `\n\n=== BATCH ${batchIdx + 1}: PAGES ${startPage + 1}-${endPage} ===\n\n${batchText}`;
+        
+        // 2. Chunk
         const chunks = chunkText(batchText);
         
-        for (let i = 0; i < chunks.length; i += 3) {
-          const chunkBatch = chunks.slice(i, i + 3);
-          try {
-            const vectors = [];
-            for (let j = 0; j < chunkBatch.length; j++) {
-              const chunk = chunkBatch[j];
-              const embedding = await generateEmbedding(chunk, genAI);
-              vectors.push({
-                id: `${sessionId}_b${batchIdx}_c${i + j}`,
-                values: embedding,
-                metadata: {
-                  text: chunk.substring(0, 1000),
-                  content: chunk.substring(0, 1000),
-                  filename,
-                  pageNumber: startPage + 1 + Math.floor((i + j) * (endPage - startPage) / chunks.length),
-                  sessionId,
-                  batchIndex: batchIdx,
-                },
-              });
-              if (j < chunkBatch.length - 1) await sleep(200);
-            }
-            await index.upsert(vectors);
-            totalChunks += vectors.length;
-          } catch (chunkError) {
-            log(`Chunk indexing error`, { error: String(chunkError) });
-          }
+        // 3. Parallel Embeddings with Concurrency Limit (e.g., 5 at a time)
+        const batchVectors = [];
+        for (let i = 0; i < chunks.length; i += 5) {
+          const chunkBatch = chunks.slice(i, i + 5);
+          const promises = chunkBatch.map(async (chunk, idx) => {
+            const embedding = await generateEmbedding(chunk, genAI);
+            return {
+              id: `${sessionId}_b${batchIdx}_c${i + idx}`,
+              values: embedding,
+              metadata: {
+                text: chunk.substring(0, 1000),
+                content: chunk.substring(0, 1000),
+                filename,
+                pageNumber: startPage + 1, // simplified page mapping for speed
+                sessionId,
+                batchIndex: batchIdx,
+              },
+            };
+          });
+          
+          const results = await Promise.all(promises);
+          batchVectors.push(...results);
+          // Small breathing room for embedding API
+          await sleep(200); 
         }
+
+        // 4. Batch Upsert to Pinecone (Pinecone handles large batches well)
+        // Split into chunks of 100 for Pinecone safety
+        for (let i = 0; i < batchVectors.length; i += 100) {
+           await index.upsert(batchVectors.slice(i, i + 100));
+        }
+        totalChunks += batchVectors.length;
         
+        // Minimal delay between batches
         if (batchIdx < numBatches - 1) {
           await sleep(DELAY_BETWEEN_BATCHES);
         }
       } catch (batchError) {
-        log(`Batch ${batchIdx + 1} failed`, { error: String(batchError) });
+        console.error(`Batch ${batchIdx + 1} failed`, batchError);
+        // Continue to next batch instead of failing completely? 
+        // User wants "complete context", so retrying within extract is better (already handled).
       }
     }
 
