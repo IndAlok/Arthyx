@@ -12,7 +12,7 @@ const features = [
   {
     icon: Brain,
     title: "Quantitative Intelligence",
-    description: "Powered by Gemini 1.5 Pro & Pinecone Vector DB. Performs semantic search over millions of tokens for deep financial context.",
+    description: "Powered by Gemini 2.0 Flash & Pinecone Vector DB. Performs semantic search over millions of tokens for deep financial context.",
     gradient: "from-blue-500 to-cyan-500",
   },
   {
