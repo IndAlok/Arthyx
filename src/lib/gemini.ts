@@ -159,7 +159,7 @@ export async function generateChatResponse(
 ${documentFilenames.map((f, i) => `${i + 1}. ${f}`).join("\n")}
 
 ## Relevant Document Excerpts
-${sources.slice(0, 8).map((s, i) => `
+${sources.slice(0, 15).map((s, i) => `
 ### [${s.filename}, Page ${s.pageNumber}] (${(s.relevanceScore * 100).toFixed(0)}% relevant)
 ${s.excerpt}
 `).join("\n---\n")}`;

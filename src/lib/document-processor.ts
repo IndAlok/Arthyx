@@ -120,34 +120,53 @@ Report at end: [TOTAL_PAGES: X] [LANGUAGE: X]
 
 Extract COMPLETE text - do not summarize or skip sections.`;
 
-  try {
-    onProgress?.("Running vision extraction...");
-    
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { mimeType, data: base64Data } },
-    ]);
+  const MAX_RETRIES = 5;
+  let lastError: Error | null = null;
 
-    const response = result.response.text();
-    
-    const pagesMatch = response.match(/\[TOTAL_PAGES:\s*(\d+)\]/);
-    const pages = pagesMatch ? parseInt(pagesMatch[1], 10) : 1;
-    
-    const languageMatch = response.match(/\[LANGUAGE:\s*([^\]]+)\]/);
-    const language = languageMatch ? languageMatch[1].trim() : "English";
-    
-    const text = response
-      .replace(/\[TOTAL_PAGES:\s*\d+\]/g, "")
-      .replace(/\[LANGUAGE:\s*[^\]]+\]/g, "")
-      .trim();
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      onProgress?.(`Vision extraction attempt ${attempt}/${MAX_RETRIES}...`);
+      
+      const result = await model.generateContent([
+        prompt,
+        { inlineData: { mimeType, data: base64Data } },
+      ]);
 
-    log("Vision extraction complete", { pages, textLength: text.length });
-    
-    return { text, pages, language };
-  } catch (error) {
-    log("Vision extraction error", { error: String(error) });
-    throw error;
+      const response = result.response.text();
+      
+      const pagesMatch = response.match(/\[TOTAL_PAGES:\s*(\d+)\]/);
+      const pages = pagesMatch ? parseInt(pagesMatch[1], 10) : 1;
+      
+      const languageMatch = response.match(/\[LANGUAGE:\s*([^\]]+)\]/);
+      const language = languageMatch ? languageMatch[1].trim() : "English";
+      
+      const text = response
+        .replace(/\[TOTAL_PAGES:\s*\d+\]/g, "")
+        .replace(/\[LANGUAGE:\s*[^\]]+\]/g, "")
+        .trim();
+
+      log("Vision extraction complete", { pages, textLength: text.length, attempt });
+      
+      return { text, pages, language };
+    } catch (error) {
+      lastError = error as Error;
+      const errorStr = String(error);
+      const isRateLimit = errorStr.includes("429") || errorStr.includes("Resource exhausted");
+      
+      log("Vision extraction attempt failed", { attempt, isRateLimit, error: errorStr.substring(0, 200) });
+      
+      if (attempt < MAX_RETRIES) {
+        const baseDelay = isRateLimit ? 30000 : 5000;
+        const delay = baseDelay * attempt;
+        log("Retrying after delay", { delay, nextAttempt: attempt + 1 });
+        onProgress?.(`Rate limited. Waiting ${delay / 1000}s before retry ${attempt + 1}...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
   }
+
+  log("Vision extraction failed after all retries", { error: String(lastError) });
+  throw lastError || new Error("Vision extraction failed after max retries");
 }
 
 function semanticChunk(text: string, chunkSize: number = 500, overlapPercent: number = 15): string[] {

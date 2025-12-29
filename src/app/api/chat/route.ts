@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
           return {
             filename: metadata.filename || "Unknown",
             pageNumber: metadata.pageNumber || 1,
-            excerpt: (metadata.content || metadata.text || "").substring(0, 500),
+            excerpt: (metadata.content || metadata.text || "").substring(0, 4000),
             relevanceScore: result.score || 0,
             chunkIndex: metadata.chunkIndex,
           };
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
             const llamaSources = llamaResult.sources.map(s => ({
               filename: documentFilenames[0] || "Document",
               pageNumber: s.pageNumber,
-              excerpt: s.text.substring(0, 500),
+              excerpt: s.text.substring(0, 4000),
               relevanceScore: s.score,
               chunkIndex: 0,
               type: s.type,
