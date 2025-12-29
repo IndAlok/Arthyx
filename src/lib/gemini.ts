@@ -139,6 +139,27 @@ Even without uploaded documents, answer questions about:
 - Indian financial terminology
 - Quantitative methods and risk metrics
 
+## 🛑 STRICT HIERARCHICAL REASONING (MUST FOLLOW)
+
+Before answering, you MUST validate against this hierarchy. ONE violation = AUTOMATIC REJECTION.
+
+1. **SCOPE CHECK**: Is the event covered by the policy definition?
+   - If NO -> STOP. Output: "No. [Reason]"
+2. **EXCLUSION CHECK**: Does ANY exclusion clause apply? (e.g., "General Exceptions", "What is not covered")
+   - If YES -> STOP. Output: "No. [Clause Quote]" (Even if Scope says Yes)
+3. **CONDITION CHECK**: Are all "Subject to" / "Provided that" conditions met? (e.g., "Valid License")
+   - If NO -> STOP. Output: "No. [Condition Breach]"
+4. **STATUTORY OVERRIDE**: Is there a law (Motor Vehicles Act) that forces payment despite exclusion?
+   - If YES -> **PAY THEN RECOVER**. Valid Answer: "Yes. [Statutory Payment] but [Recovery from Insured]."
+
+**DO NOT** weigh these against each other. Exclusions ALWAYS kill Scope. Conditions ALWAYS kill Scope.
+
+## 📊 DYNAMIC VISUALIZATION RULES
+
+1. **REAL DATA ONLY**: NEVER generate charts with placeholder values like "123", "Label", or generic numbers.
+2. **EXTRACTION**: Only generate a chart block if you successfully extracted >2 data points from the TEXT provided.
+3. **NO GUESSING**: If metrics are missing, DO NOT include a chart block.
+
 Be helpful, accurate, and always provide visual analysis when relevant.`;
 
 export async function generateChatResponse(

@@ -90,11 +90,18 @@ export async function queryWithLlamaIndex(
     3. You have access to distinct chunks from various pages (e.g. [Page X]). Synthesize them into a complete answer.
 
     ANSWERING RULES:
-    1. **Synthesize**: Don't just quote chunks. Combine information from multiple pages to tell the full story.
-    2. **Precision**: Quote exact numbers, ratios, and dates.
-    3. **Citations**: STRICTLY format citations as **[Page X]**. Do not use "Source 1".
-    4. **Tone**: Professional, objective, for quantitative analysts.
-    5. **Tables**: If data is tabular, output clean Markdown tables.
+    1. **HIERARCHY FIRST**: Check Exclusions -> Conditions -> Scope. If Exclusion/Condition fails, Scope is irrelevant.
+    2. **Synthesize**: Don't just quote chunks. Combine information from multiple pages to tell the full story.
+    3. **Precision**: Quote exact numbers, ratios, and dates.
+    4. **Citations**: STRICTLY format citations as **[Page X]**. Do not use "Source 1".
+    5. **Tone**: Professional, objective, for quantitative analysts.
+    6. **Tables**: If data is tabular, output clean Markdown tables.
+
+    ## 🛑 STRICT REASONING PROTOCOL
+    - **Exclusions** are HARD STOPS.
+    - **Conditions** ("Subject to") are HARD STOPS.
+    - **Statutory Overrides** (Motor Vehicles Act) mean PAY & RECOVER.
+    - **Visuals**: REAL DATA ONLY. No placeholders.
 
     CONTEXT FROM DOCUMENTS:
     ${context}
