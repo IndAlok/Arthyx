@@ -1,23 +1,104 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 
 let driver: Driver | null = null;
+let lastConnectionAttempt = 0;
+const CONNECTION_RETRY_INTERVAL = 60000;
 
 const log = (step: string, data?: object) => {
   console.log(`[NEO4J] ${step}`, data ? JSON.stringify(data) : "");
 };
 
-export function getDriver(): Driver {
-  if (!driver) {
-    driver = neo4j.driver(
-      process.env.NEO4J_URI!,
-      neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!)
-    );
-  }
-  return driver;
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function getSession(): Promise<Session> {
-  return getDriver().session();
+function isConfigured(): boolean {
+  return !!(process.env.NEO4J_URI && process.env.NEO4J_USERNAME && process.env.NEO4J_PASSWORD);
+}
+
+export async function initializeDriver(): Promise<Driver | null> {
+  if (!isConfigured()) {
+    log("Neo4j not configured - missing environment variables");
+    return null;
+  }
+
+  if (driver) {
+    try {
+      await driver.verifyConnectivity();
+      return driver;
+    } catch {
+      log("Existing driver disconnected, reconnecting...");
+      driver = null;
+    }
+  }
+
+  const now = Date.now();
+  if (now - lastConnectionAttempt < CONNECTION_RETRY_INTERVAL && lastConnectionAttempt > 0) {
+    return null;
+  }
+  lastConnectionAttempt = now;
+
+  const MAX_RETRIES = 3;
+  
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      log("Connecting to Neo4j", { attempt, uri: process.env.NEO4J_URI?.substring(0, 30) });
+      
+      driver = neo4j.driver(
+        process.env.NEO4J_URI!,
+        neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!),
+        { 
+          maxConnectionLifetime: 3 * 60 * 60 * 1000,
+          maxConnectionPoolSize: 10,
+          connectionAcquisitionTimeout: 60000,
+        }
+      );
+      
+      await driver.verifyConnectivity();
+      log("Neo4j connected successfully", { attempt });
+      return driver;
+    } catch (error) {
+      log("Connection attempt failed", { attempt, error: String(error).substring(0, 200) });
+      driver = null;
+      
+      if (attempt < MAX_RETRIES) {
+        const delay = 5000 * attempt;
+        log("Retrying after delay", { delay, nextAttempt: attempt + 1 });
+        await sleep(delay);
+      }
+    }
+  }
+  
+  log("Failed to connect after all retries");
+  return null;
+}
+
+export async function getSession(): Promise<Session | null> {
+  const d = await initializeDriver();
+  if (!d) return null;
+  return d.session();
+}
+
+export async function healthCheck(): Promise<{ status: string; connected: boolean; message: string }> {
+  try {
+    const d = await initializeDriver();
+    if (!d) {
+      return { status: "error", connected: false, message: "Neo4j not configured or connection failed" };
+    }
+    
+    const session = d.session();
+    try {
+      const result = await session.run("RETURN 1 as ping");
+      const ping = result.records[0]?.get("ping");
+      log("Health check passed", { ping });
+      return { status: "ok", connected: true, message: "Neo4j AuraDB connected and responsive" };
+    } finally {
+      await session.close();
+    }
+  } catch (error) {
+    log("Health check failed", { error: String(error) });
+    return { status: "error", connected: false, message: String(error) };
+  }
 }
 
 export interface Entity {
@@ -38,6 +119,7 @@ export async function createEntity(
   entity: Entity
 ): Promise<void> {
   const session = await getSession();
+  if (!session) return;
   try {
     log("Creating entity", { sessionId, entity: entity.name, type: entity.type });
     await session.run(
@@ -59,6 +141,7 @@ export async function createRelationship(
   relationship: Relationship
 ): Promise<void> {
   const session = await getSession();
+  if (!session) return;
   try {
     log("Creating relationship", { 
       from: relationship.from, 
@@ -157,19 +240,21 @@ export async function extractEntitiesFromText(
   }
 
   const session = await getSession();
-  try {
-    for (const entity of uniqueEntities.slice(0, 20)) {
-      await createEntity(sessionId, entity);
+  if (session) {
+    try {
+      for (const entity of uniqueEntities.slice(0, 20)) {
+        await createEntity(sessionId, entity);
+      }
+      for (const rel of relationships.slice(0, 10)) {
+        await createRelationship(sessionId, rel);
+      }
+      log("Entities extracted", { 
+        entities: uniqueEntities.length, 
+        relationships: relationships.length 
+      });
+    } finally {
+      await session.close();
     }
-    for (const rel of relationships.slice(0, 10)) {
-      await createRelationship(sessionId, rel);
-    }
-    log("Entities extracted", { 
-      entities: uniqueEntities.length, 
-      relationships: relationships.length 
-    });
-  } finally {
-    await session.close();
   }
 
   return { entities: uniqueEntities, relationships };
@@ -181,6 +266,7 @@ export async function queryRiskContagion(
   depth: number = 2
 ): Promise<{ path: string[]; relationships: string[] }[]> {
   const session = await getSession();
+  if (!session) return [];
   try {
     log("Querying risk contagion", { startEntity, depth });
     const result = await session.run(
@@ -205,6 +291,7 @@ export async function getSessionGraph(sessionId: string): Promise<{
   edges: Array<{ from: string; to: string; type: string }>;
 }> {
   const session = await getSession();
+  if (!session) return { nodes: [], edges: [] };
   try {
     log("Getting session graph", { sessionId });
     const result = await session.run(
@@ -227,6 +314,7 @@ export async function getSessionGraph(sessionId: string): Promise<{
 
 export async function clearSessionGraph(sessionId: string): Promise<void> {
   const session = await getSession();
+  if (!session) return;
   try {
     log("Clearing session graph", { sessionId });
     await session.run(
