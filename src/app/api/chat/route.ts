@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
         const [queryEmbedding] = await generateEmbeddings([message]);
 
-        const searchResults = await queryDocuments(queryEmbedding, sessionId, 25);
+        const searchResults = await queryDocuments(queryEmbedding, sessionId, 30);
 
         sources = searchResults.map((result) => {
           const metadata = result.metadata as {
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
         });
 
         try {
-          const llamaResult = await queryWithLlamaIndex(message, sessionId, { topK: 5 });
+          const llamaResult = await queryWithLlamaIndex(message, sessionId, { topK: 10 });
           
           if (llamaResult.sources.length > 0) {
             const llamaSources = llamaResult.sources.map(s => ({
