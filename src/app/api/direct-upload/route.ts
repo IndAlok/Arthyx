@@ -6,10 +6,16 @@ import { createSession, addDocument, updateJobStatus } from "@/lib/redis";
 
 export const maxDuration = 300;
 
-const BATCH_SIZE = 50; 
-const CHUNK_SIZE = 3000; 
-const DELAY_BETWEEN_BATCHES = 2000; 
-const MAX_RETRIES = 5;
+const CHUNK_SIZE = 2000;
+const MAX_RETRIES = 3;
+
+function calculateOptimalBatchSize(totalPages: number, fileSizeMB: number): number {
+  if (totalPages <= 5) return totalPages;
+  if (fileSizeMB > 30) return 5;
+  if (fileSizeMB > 15) return 8;
+  if (totalPages > 100) return 10;
+  return 12;
+}
 
 function chunkText(text: string): string[] {
   const chunks: string[] = [];
@@ -26,8 +32,7 @@ function chunkText(text: string): string[] {
     }
     const chunk = text.slice(start, end).trim();
     if (chunk.length > 50) chunks.push(chunk);
-    start = end - 50;
-    if (start >= text.length - 50) break;
+    start = end;
   }
   return chunks;
 }
@@ -36,52 +41,36 @@ async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  operation: string,
-  retries: number = MAX_RETRIES
-): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, retries: number = MAX_RETRIES): Promise<T> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       return await fn();
     } catch (error) {
       const isRateLimit = String(error).includes("429") || String(error).includes("Resource exhausted");
       if (attempt === retries) throw error;
-      const baseDelay = isRateLimit ? 30000 : 2000;
-      const delay = baseDelay * attempt;
+      const delay = isRateLimit ? 20000 * attempt : 2000 * attempt;
       await sleep(delay);
     }
   }
-  throw new Error(`${operation} failed after ${retries} retries`);
+  throw new Error("Failed after retries");
 }
 
-async function generateEmbedding(text: string, genAI: GoogleGenerativeAI): Promise<number[]> {
-  try {
-    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
-    const result = await model.embedContent(text);
-    return result.embedding.values;
-  } catch (e) {
-    await sleep(1000);
-    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
-    const result = await model.embedContent(text);
-    return result.embedding.values;
-  }
-}
-
-async function extractBatchWithGemini(
-  pdfDoc: PDFDocument, 
-  startPage: number, 
+async function extractPagesWithGemini(
+  pdfBytes: ArrayBuffer,
+  startPage: number,
   endPage: number,
   genAI: GoogleGenerativeAI
 ): Promise<string> {
+  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
   const pageCount = pdfDoc.getPageCount();
-  const actualStart = Math.max(0, startPage);
   const actualEnd = Math.min(pageCount, endPage);
   
   const pagesToCopy = [];
-  for (let i = actualStart; i < actualEnd; i++) {
+  for (let i = startPage; i < actualEnd; i++) {
     pagesToCopy.push(i);
   }
+  
+  if (pagesToCopy.length === 0) return "";
   
   const newPdf = await PDFDocument.create();
   const copiedPages = await newPdf.copyPages(pdfDoc, pagesToCopy);
@@ -91,101 +80,131 @@ async function extractBatchWithGemini(
   
   return withRetry(async () => {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    const prompt = `Extract ALL text from this PDF (pages ${startPage + 1}-${actualEnd}). Mark each page as === PAGE X ===. Extract every word, number, table exactly. Tables: markdown | format. Do NOT summarize.`;
     const result = await model.generateContent([
-      prompt,
+      `Extract ALL text from this PDF (pages ${startPage + 1}-${actualEnd}). Mark each page as === PAGE X ===. Extract every word, number, table exactly. Tables: markdown | format. Do NOT summarize.`,
       { inlineData: { mimeType: "application/pdf", data: base64Pdf } },
     ]);
     return result.response.text();
-  }, `Gemini extraction pages ${startPage + 1}-${actualEnd}`);
+  });
+}
+
+async function generateBatchEmbeddings(
+  chunks: string[],
+  genAI: GoogleGenerativeAI
+): Promise<number[][]> {
+  const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+  const embeddings: number[][] = [];
+  
+  for (let i = 0; i < chunks.length; i += 5) {
+    const batch = chunks.slice(i, i + 5);
+    const results = await Promise.all(
+      batch.map(async (chunk) => {
+        const truncated = chunk.substring(0, 1500);
+        const result = await model.embedContent(truncated);
+        return result.embedding.values;
+      })
+    );
+    embeddings.push(...results);
+    if (i + 5 < chunks.length) await sleep(100);
+  }
+  
+  return embeddings;
 }
 
 async function processDocumentBackground(jobId: string, blobUrl: string, filename: string, sessionId: string) {
   const startTime = Date.now();
   
   try {
-    await updateJobStatus(jobId, { status: "processing", progress: 0, message: "Fetching PDF..." });
+    await updateJobStatus(jobId, { status: "processing", progress: 0, message: "Fetching document..." });
 
     const response = await fetch(blobUrl);
-    if (!response.ok) throw new Error(`Blob fetch failed: ${response.status}`);
+    if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
     const pdfBytes = await response.arrayBuffer();
-    const pdfDoc = await PDFDocument.load(pdfBytes);
-    const totalPages = pdfDoc.getPageCount();
+    const fileSizeMB = pdfBytes.byteLength / (1024 * 1024);
     
-    await updateJobStatus(jobId, { progress: 2, message: `PDF loaded: ${totalPages} pages. Maximizing throughput...` });
+    const tempDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+    const totalPages = tempDoc.getPageCount();
+    
+    const pagesPerBatch = calculateOptimalBatchSize(totalPages, fileSizeMB);
+    const numBatches = Math.ceil(totalPages / pagesPerBatch);
+    
+    await updateJobStatus(jobId, { 
+      progress: 2, 
+      message: `Processing ${totalPages} pages (${fileSizeMB.toFixed(1)}MB) in ${numBatches} batches of ${pagesPerBatch} pages...` 
+    });
 
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
     const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
     const index = pinecone.index("arthyx");
 
-    let allText = "";
     let totalChunks = 0;
-    const numBatches = Math.ceil(totalPages / BATCH_SIZE);
+    let totalTextLength = 0;
 
     for (let batchIdx = 0; batchIdx < numBatches; batchIdx++) {
-      const startPage = batchIdx * BATCH_SIZE;
-      const endPage = Math.min((batchIdx + 1) * BATCH_SIZE, totalPages);
-      const progress = 5 + Math.floor(((batchIdx) / numBatches) * 90);
+      const startPage = batchIdx * pagesPerBatch;
+      const endPage = Math.min((batchIdx + 1) * pagesPerBatch, totalPages);
+      const progress = 5 + Math.floor(((batchIdx + 1) / numBatches) * 90);
       
       await updateJobStatus(jobId, { 
         progress, 
-        message: `Processing batch ${batchIdx + 1}/${numBatches} (Pages ${startPage + 1}-${endPage})...` 
+        message: `Extracting pages ${startPage + 1}-${endPage} of ${totalPages}...` 
       });
       
       try {
-        const batchText = await extractBatchWithGemini(pdfDoc, startPage, endPage, genAI);
-        allText += `\n\n=== BATCH ${batchIdx + 1}: PAGES ${startPage + 1}-${endPage} ===\n\n${batchText}`;
+        const batchText = await extractPagesWithGemini(pdfBytes, startPage, endPage, genAI);
+        totalTextLength += batchText.length;
+        
         const chunks = chunkText(batchText);
+        if (chunks.length === 0) continue;
         
-        const batchVectors = [];
-        for (let i = 0; i < chunks.length; i += 5) {
-          const chunkBatch = chunks.slice(i, i + 5);
-          const promises = chunkBatch.map(async (chunk, idx) => {
-            const embedding = await generateEmbedding(chunk, genAI);
-            return {
-              id: `${sessionId}_b${batchIdx}_c${i + idx}`,
-              values: embedding,
-              metadata: {
-                text: chunk.substring(0, 8000), 
-                content: chunk.substring(0, 8000),
-                filename,
-                pageNumber: startPage + 1,
-                sessionId,
-                batchIndex: batchIdx,
-              },
-            };
-          });
-          
-          const results = await Promise.all(promises);
-          batchVectors.push(...results);
-          await sleep(200); 
-        }
-
-        for (let i = 0; i < batchVectors.length; i += 100) {
-           await index.upsert(batchVectors.slice(i, i + 100));
-        }
-        totalChunks += batchVectors.length;
+        await updateJobStatus(jobId, { 
+          progress, 
+          message: `Embedding ${chunks.length} chunks from pages ${startPage + 1}-${endPage}...` 
+        });
         
-        if (batchIdx < numBatches - 1) {
-          await sleep(DELAY_BETWEEN_BATCHES);
+        const embeddings = await generateBatchEmbeddings(chunks, genAI);
+        
+        const vectors = chunks.map((chunk, i) => ({
+          id: `${sessionId}_p${startPage}_c${i}`,
+          values: embeddings[i],
+          metadata: {
+            text: chunk.substring(0, 8000),
+            content: chunk.substring(0, 8000),
+            filename,
+            pageNumber: startPage + 1 + Math.floor(i / 3),
+            sessionId,
+          },
+        }));
+        
+        for (let i = 0; i < vectors.length; i += 50) {
+          await index.upsert(vectors.slice(i, i + 50));
+        }
+        
+        totalChunks += chunks.length;
+        
+        if (batchIdx < numBatches - 1 && batchIdx % 3 === 2) {
+          await sleep(1000);
         }
       } catch (batchError) {
-        // Silent failure for batch to maintain process continuity
+        console.log(`[DIRECT-UPLOAD] Batch ${batchIdx} error:`, String(batchError).substring(0, 150));
       }
     }
 
     const duration = Date.now() - startTime;
+    const pagesPerSecond = (totalPages / (duration / 1000)).toFixed(2);
+    
     await updateJobStatus(jobId, { 
       status: "completed", 
       progress: 100, 
-      message: "Processing complete!", 
+      message: `Complete! ${totalPages} pages processed in ${Math.round(duration / 1000)}s (${pagesPerSecond} pages/sec)`, 
       result: {
         sessionId,
         filename,
         pages: totalPages,
         chunks: totalChunks,
-        textLength: allText.length,
+        textLength: totalTextLength,
         duration,
+        pagesPerSecond: parseFloat(pagesPerSecond),
       }
     });
 
@@ -222,7 +241,7 @@ export async function POST(request: NextRequest) {
     });
 
     processDocumentBackground(jobId, blobUrl, filename, sessionId).catch(err => {
-      // Background fatal errors are caught here
+      console.error("[DIRECT-UPLOAD] Background error:", err);
     });
 
     return NextResponse.json({
@@ -239,3 +258,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
