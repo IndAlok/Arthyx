@@ -27,9 +27,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           maximumSizeInBytes: 50 * 1024 * 1024,
         };
       },
-      onUploadCompleted: async ({ blob }) => {
-        console.log("[BLOB] Upload completed:", blob.url);
-      },
     });
 
     return NextResponse.json(jsonResponse);

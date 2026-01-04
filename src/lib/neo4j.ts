@@ -234,29 +234,20 @@ async function saveToNeo4j(
   try {
     log("Saving to Neo4j", { entities: entities.length, relationships: relationships.length });
 
-    const createEntitiesQuery = `
-      UNWIND $entities AS entity
-      CALL apoc.merge.node([entity.type], {name: entity.name, sessionId: $sessionId}, entity.props) YIELD node
-      RETURN count(node) as created
-    `;
-
-    const createEntitiesQueryFallback = `
-      UNWIND $entities AS entity
-      MERGE (n {name: entity.name, sessionId: $sessionId})
-      SET n += entity.props, n:Entity
-      RETURN count(n) as created
-    `;
-
-    const entityData = entities.map(e => ({
-      type: e.type,
-      name: e.name,
-      props: { ...e.properties, createdAt: Date.now() }
-    }));
-
-    try {
-      await session.run(createEntitiesQuery, { entities: entityData, sessionId });
-    } catch {
-      await session.run(createEntitiesQueryFallback, { entities: entityData, sessionId });
+    for (const entity of entities) {
+      try {
+        await session.run(`
+          MERGE (n:Entity {name: $name, sessionId: $sessionId})
+          SET n.type = $type, n.createdAt = $timestamp
+        `, {
+          name: entity.name,
+          sessionId,
+          type: entity.type,
+          timestamp: Date.now(),
+        });
+      } catch (entityError) {
+        log("Entity creation failed", { name: entity.name, error: String(entityError).substring(0, 50) });
+      }
     }
 
     log("Entities saved", { count: entities.length });
@@ -264,18 +255,19 @@ async function saveToNeo4j(
     for (const rel of relationships) {
       try {
         await session.run(`
-          MATCH (a {name: $fromName, sessionId: $sessionId})
-          MATCH (b {name: $toName, sessionId: $sessionId})
-          MERGE (a)-[r:${rel.relationType}]->(b)
+          MATCH (a:Entity {name: $fromName, sessionId: $sessionId})
+          MATCH (b:Entity {name: $toName, sessionId: $sessionId})
+          MERGE (a)-[r:RELATES_TO {type: $relationType}]->(b)
           SET r.createdAt = $timestamp
         `, {
           fromName: rel.fromName,
           toName: rel.toName,
+          relationType: rel.relationType,
           sessionId,
           timestamp: Date.now(),
         });
       } catch (relError) {
-        log("Relationship creation failed", { from: rel.fromName, to: rel.toName, error: String(relError).substring(0, 50) });
+        log("Relationship failed", { from: rel.fromName, to: rel.toName });
       }
     }
 
