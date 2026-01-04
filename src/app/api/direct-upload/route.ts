@@ -3,6 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { createSession, addDocument, updateJobStatus } from "@/lib/redis";
+import { extractEntitiesFromText } from "@/lib/neo4j";
 
 export const maxDuration = 300;
 
@@ -139,11 +140,12 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
 
     let totalChunks = 0;
     let totalTextLength = 0;
+    let sampleTextForKnowledgeGraph = "";
 
     for (let batchIdx = 0; batchIdx < numBatches; batchIdx++) {
       const startPage = batchIdx * pagesPerBatch;
       const endPage = Math.min((batchIdx + 1) * pagesPerBatch, totalPages);
-      const progress = 5 + Math.floor(((batchIdx + 1) / numBatches) * 90);
+      const progress = 5 + Math.floor(((batchIdx + 1) / numBatches) * 85);
       
       await updateJobStatus(jobId, { 
         progress, 
@@ -153,6 +155,10 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
       try {
         const batchText = await extractPagesWithGemini(pdfBytes, startPage, endPage, genAI);
         totalTextLength += batchText.length;
+        
+        if (sampleTextForKnowledgeGraph.length < 15000) {
+          sampleTextForKnowledgeGraph += batchText.substring(0, 5000);
+        }
         
         const chunks = chunkText(batchText);
         if (chunks.length === 0) continue;
@@ -188,6 +194,15 @@ async function processDocumentBackground(jobId: string, blobUrl: string, filenam
       } catch (batchError) {
         console.log(`[DIRECT-UPLOAD] Batch ${batchIdx} error:`, String(batchError).substring(0, 150));
       }
+    }
+
+    await updateJobStatus(jobId, { progress: 92, message: "Building knowledge graph..." });
+    
+    try {
+      const { entities, relationships } = await extractEntitiesFromText(sampleTextForKnowledgeGraph, sessionId);
+      console.log(`[DIRECT-UPLOAD] Knowledge graph: ${entities.length} entities, ${relationships.length} relationships`);
+    } catch (kgError) {
+      console.log(`[DIRECT-UPLOAD] Knowledge graph error:`, String(kgError).substring(0, 100));
     }
 
     const duration = Date.now() - startTime;
