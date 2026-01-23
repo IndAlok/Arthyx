@@ -3,11 +3,15 @@ import { generateEmbeddings } from "@/lib/gemini";
 import { upsertDocumentChunks, DocumentChunk } from "@/lib/pinecone";
 import { createSession, addDocument, getSession } from "@/lib/redis";
 
+export const runtime = "edge";
 export const maxDuration = 60;
 
 const log = (step: string, data?: object) => {
   const timestamp = new Date().toISOString();
-  console.log(`[INDEX][${timestamp}] ${step}`, data ? JSON.stringify(data) : "");
+  console.log(
+    `[INDEX][${timestamp}] ${step}`,
+    data ? JSON.stringify(data) : "",
+  );
 };
 
 interface IndexRequest {
@@ -17,18 +21,25 @@ interface IndexRequest {
   sessionId?: string;
 }
 
-function semanticChunk(text: string, chunkSize: number = 500, overlapPercent: number = 15): string[] {
+function semanticChunk(
+  text: string,
+  chunkSize: number = 500,
+  overlapPercent: number = 15,
+): string[] {
   const overlap = Math.floor(chunkSize * (overlapPercent / 100));
   const chunks: string[] = [];
-  
+
   const paragraphs = text.split(/\n\n+/);
   let currentChunk = "";
-  
+
   for (const para of paragraphs) {
     const cleanPara = para.trim();
     if (!cleanPara) continue;
-    
-    if (currentChunk.length + cleanPara.length > chunkSize && currentChunk.length > 100) {
+
+    if (
+      currentChunk.length + cleanPara.length > chunkSize &&
+      currentChunk.length > 100
+    ) {
       chunks.push(currentChunk.trim());
       const overlapText = currentChunk.slice(-overlap);
       currentChunk = overlapText + " " + cleanPara;
@@ -36,29 +47,38 @@ function semanticChunk(text: string, chunkSize: number = 500, overlapPercent: nu
       currentChunk += (currentChunk ? "\n\n" : "") + cleanPara;
     }
   }
-  
+
   if (currentChunk.trim().length > 50) {
     chunks.push(currentChunk.trim());
   }
-  
+
   return chunks;
 }
 
-function createSemanticChunks(text: string, maxChunks: number = 75): Array<{ 
-  content: string; 
-  pageNumber: number; 
-  chunkIndex: number; 
-  type: "text" | "table" | "header" 
+function createSemanticChunks(
+  text: string,
+  maxChunks: number = 75,
+): Array<{
+  content: string;
+  pageNumber: number;
+  chunkIndex: number;
+  type: "text" | "table" | "header";
 }> {
-  const chunks: Array<{ content: string; pageNumber: number; chunkIndex: number; type: "text" | "table" | "header" }> = [];
-  
-  const pagePattern = /===\s*(?:PAGE|BATCH|SECTION|SHEET)[:\s]*(\d+)(?:[^\n]*)?===/gi;
+  const chunks: Array<{
+    content: string;
+    pageNumber: number;
+    chunkIndex: number;
+    type: "text" | "table" | "header";
+  }> = [];
+
+  const pagePattern =
+    /===\s*(?:PAGE|BATCH|SECTION|SHEET)[:\s]*(\d+)(?:[^\n]*)?===/gi;
   const pages: Array<{ pageNumber: number; content: string }> = [];
-  
+
   let lastIndex = 0;
   let currentPageNum = 1;
   let match;
-  
+
   while ((match = pagePattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
       const content = text.substring(lastIndex, match.index).trim();
@@ -69,14 +89,14 @@ function createSemanticChunks(text: string, maxChunks: number = 75): Array<{
     currentPageNum = parseInt(match[1], 10);
     lastIndex = match.index + match[0].length;
   }
-  
+
   if (lastIndex < text.length) {
     const content = text.substring(lastIndex).trim();
     if (content.length > 100) {
       pages.push({ pageNumber: currentPageNum, content });
     }
   }
-  
+
   if (pages.length === 0 && text.length > 100) {
     pages.push({ pageNumber: 1, content: text });
   }
@@ -85,16 +105,20 @@ function createSemanticChunks(text: string, maxChunks: number = 75): Array<{
 
   for (const page of pages) {
     if (chunks.length >= maxChunks) break;
-    
+
     const semanticChunks = semanticChunk(page.content, 500, 15);
-    
+
     for (const chunkText of semanticChunks) {
       if (chunks.length >= maxChunks) break;
       if (chunkText.length < 50) continue;
-      
-      const isTable = chunkText.includes("|") && (chunkText.includes("---") || /\|\s*[\d₹]/.test(chunkText));
-      const isHeader = /^#+\s/.test(chunkText) || /^[A-Z][A-Z\s]{10,}$/.test(chunkText.split("\n")[0]);
-      
+
+      const isTable =
+        chunkText.includes("|") &&
+        (chunkText.includes("---") || /\|\s*[\d₹]/.test(chunkText));
+      const isHeader =
+        /^#+\s/.test(chunkText) ||
+        /^[A-Z][A-Z\s]{10,}$/.test(chunkText.split("\n")[0]);
+
       chunks.push({
         content: chunkText,
         pageNumber: page.pageNumber,
@@ -110,23 +134,31 @@ function createSemanticChunks(text: string, maxChunks: number = 75): Array<{
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
-  
+
   log("=== INDEX REQUEST STARTED ===");
-  
+
   try {
     const body: IndexRequest = await request.json();
-    const { extractedText, filename, pages, sessionId: existingSessionId } = body;
-    
-    log("Request parsed", { 
-      filename, 
-      pages, 
+    const {
+      extractedText,
+      filename,
+      pages,
+      sessionId: existingSessionId,
+    } = body;
+
+    log("Request parsed", {
+      filename,
+      pages,
       textLength: extractedText?.length,
-      existingSessionId 
+      existingSessionId,
     });
-    
+
     if (!extractedText || extractedText.length < 100) {
       log("ERROR: Insufficient text", { textLength: extractedText?.length });
-      return NextResponse.json({ error: "Insufficient text to index" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Insufficient text to index" },
+        { status: 400 },
+      );
     }
 
     let sessionId = existingSessionId;
@@ -143,12 +175,15 @@ export async function POST(request: NextRequest) {
         await createSession(sessionId);
         log("Session created successfully", { sessionId });
       } else {
-        log("Session exists", { sessionId, documents: existingSession.documents?.length || 0 });
+        log("Session exists", {
+          sessionId,
+          documents: existingSession.documents?.length || 0,
+        });
       }
     }
 
     log("Creating semantic chunks");
-    const chunks = createSemanticChunks(extractedText)
+    const chunks = createSemanticChunks(extractedText);
     log("Chunks created", { count: chunks.length });
 
     const documentChunks: DocumentChunk[] = chunks.map((chunk, index) => ({
@@ -164,14 +199,22 @@ export async function POST(request: NextRequest) {
     if (documentChunks.length > 0) {
       const batchSize = 10;
       const allEmbeddings: number[][] = [];
-      
-      log("Generating embeddings", { totalChunks: documentChunks.length, batchSize });
-      
+
+      log("Generating embeddings", {
+        totalChunks: documentChunks.length,
+        batchSize,
+      });
+
       for (let i = 0; i < documentChunks.length; i += batchSize) {
         const batch = documentChunks.slice(i, i + batchSize);
-        const embeddings = await generateEmbeddings(batch.map((c) => c.content));
+        const embeddings = await generateEmbeddings(
+          batch.map((c) => c.content),
+        );
         allEmbeddings.push(...embeddings);
-        log("Batch embedded", { batch: Math.floor(i / batchSize) + 1, total: Math.ceil(documentChunks.length / batchSize) });
+        log("Batch embedded", {
+          batch: Math.floor(i / batchSize) + 1,
+          total: Math.ceil(documentChunks.length / batchSize),
+        });
       }
 
       log("Upserting to Pinecone", { chunkCount: documentChunks.length });
@@ -184,11 +227,11 @@ export async function POST(request: NextRequest) {
     log("Document added to session successfully");
 
     const processingTime = Date.now() - startTime;
-    log("=== INDEX COMPLETE ===", { 
-      sessionId, 
-      chunks: chunks.length, 
+    log("=== INDEX COMPLETE ===", {
+      sessionId,
+      chunks: chunks.length,
       processingTime,
-      filename
+      filename,
     });
 
     return NextResponse.json({

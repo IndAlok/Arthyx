@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/redis";
 
+export const runtime = "edge";
+
 export async function GET(request: NextRequest) {
   try {
     const sessionId = request.nextUrl.searchParams.get("sessionId");
@@ -8,17 +10,14 @@ export async function GET(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json(
         { error: "Session ID required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const session = await getSession(sessionId);
 
     if (!session) {
-      return NextResponse.json(
-        { error: "Session not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     return NextResponse.json({
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
     console.error("Session error:", error);
     return NextResponse.json(
       { error: "Failed to fetch session", details: String(error) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

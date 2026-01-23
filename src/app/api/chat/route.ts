@@ -1,21 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateEmbeddings, generateChatResponse, generateWithoutDocuments, ChatMessage, SourceContext } from "@/lib/gemini";
+import {
+  generateEmbeddings,
+  generateChatResponse,
+  generateWithoutDocuments,
+  ChatMessage,
+  SourceContext,
+} from "@/lib/gemini";
 import { queryDocuments } from "@/lib/pinecone";
 import { getSession, addMessage } from "@/lib/redis";
 import { getSessionGraph } from "@/lib/neo4j";
-import { extractFinancialMetrics, generateRiskReport } from "@/lib/risk-analyzer";
+import {
+  extractFinancialMetrics,
+  generateRiskReport,
+} from "@/lib/risk-analyzer";
 import { queryWithLlamaIndex } from "@/lib/llamaindex-rag";
+
+export const runtime = "edge";
 
 export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, sessionId, isEdit, originalMessageId } = await request.json();
+    const { message, sessionId, isEdit, originalMessageId } =
+      await request.json();
 
     if (!message) {
       return NextResponse.json(
         { error: "Message is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -27,14 +39,18 @@ export async function POST(request: NextRequest) {
 
     if (sessionId) {
       session = await getSession(sessionId);
-      
+
       if (session && session.documents && session.documents.length > 0) {
         hasDocuments = true;
         documentFilenames = session.documents;
 
         const [queryEmbedding] = await generateEmbeddings([message]);
 
-        const searchResults = await queryDocuments(queryEmbedding, sessionId, 30);
+        const searchResults = await queryDocuments(
+          queryEmbedding,
+          sessionId,
+          30,
+        );
 
         sources = searchResults.map((result) => {
           const metadata = result.metadata as {
@@ -49,17 +65,22 @@ export async function POST(request: NextRequest) {
           return {
             filename: metadata.filename || "Unknown",
             pageNumber: metadata.pageNumber || 1,
-            excerpt: (metadata.content || metadata.text || "").substring(0, 4000),
+            excerpt: (metadata.content || metadata.text || "").substring(
+              0,
+              4000,
+            ),
             relevanceScore: result.score || 0,
             chunkIndex: metadata.chunkIndex,
           };
         });
 
         try {
-          const llamaResult = await queryWithLlamaIndex(message, sessionId, { topK: 10 });
-          
+          const llamaResult = await queryWithLlamaIndex(message, sessionId, {
+            topK: 10,
+          });
+
           if (llamaResult.sources.length > 0) {
-            const llamaSources = llamaResult.sources.map(s => ({
+            const llamaSources = llamaResult.sources.map((s) => ({
               filename: documentFilenames[0] || "Document",
               pageNumber: s.pageNumber,
               excerpt: s.text.substring(0, 4000),
@@ -67,8 +88,8 @@ export async function POST(request: NextRequest) {
               chunkIndex: 0,
               type: s.type,
             }));
-            
-            const existingPages = new Set(sources.map(s => s.pageNumber));
+
+            const existingPages = new Set(sources.map((s) => s.pageNumber));
             for (const ls of llamaSources) {
               if (!existingPages.has(ls.pageNumber)) {
                 sources.push(ls);
@@ -84,24 +105,26 @@ export async function POST(request: NextRequest) {
         } catch {
           // Continue without graph data if error
         }
-      } 
+      }
     }
 
     const history: ChatMessage[] = [];
-    
+
     if (session && session.messages) {
-      const messagesToInclude = isEdit ? 
-        session.messages.filter((m) => m.id !== originalMessageId).slice(-6) :
-        session.messages.slice(-6);
-      
-      history.push(...messagesToInclude.map((m) => ({
-        role: (m.role === "user" ? "user" : "model") as "user" | "model",
-        content: m.content,
-      })));
+      const messagesToInclude = isEdit
+        ? session.messages.filter((m) => m.id !== originalMessageId).slice(-6)
+        : session.messages.slice(-6);
+
+      history.push(
+        ...messagesToInclude.map((m) => ({
+          role: (m.role === "user" ? "user" : "model") as "user" | "model",
+          content: m.content,
+        })),
+      );
     }
-    
+
     history.push({ role: "user", content: message });
-    
+
     const result = hasDocuments
       ? await generateChatResponse(history, sources, documentFilenames, true)
       : await generateWithoutDocuments(history);
@@ -110,22 +133,29 @@ export async function POST(request: NextRequest) {
     let additionalMetrics = undefined;
 
     if (hasDocuments && sources.length > 0) {
-      const combinedText = sources.map(s => s.excerpt).join("\n");
+      const combinedText = sources.map((s) => s.excerpt).join("\n");
       const financialMetrics = extractFinancialMetrics(combinedText);
-      
+
       if (financialMetrics.ratios.length > 0) {
-        const entityList = result.entities?.map(e => ({ 
-          type: e.type as "company" | "regulation" | "person" | "amount" | "date" | "sector", 
-          name: e.name 
-        })) || [];
+        const entityList =
+          result.entities?.map((e) => ({
+            type: e.type as
+              | "company"
+              | "regulation"
+              | "person"
+              | "amount"
+              | "date"
+              | "sector",
+            name: e.name,
+          })) || [];
         const riskReport = generateRiskReport(financialMetrics, entityList);
-        
+
         if (!result.riskAnalysis && riskReport.factors.length > 0) {
           additionalRiskAnalysis = riskReport;
         }
-        
+
         if (!result.metrics && financialMetrics.ratios.length > 0) {
-          additionalMetrics = financialMetrics.ratios.map(r => ({
+          additionalMetrics = financialMetrics.ratios.map((r) => ({
             name: r.name,
             value: r.value,
             unit: r.name.includes("Ratio") ? "" : "%",
@@ -136,7 +166,7 @@ export async function POST(request: NextRequest) {
 
     if (sessionId) {
       const messageId = `msg_${Date.now()}`;
-      
+
       await addMessage(sessionId, {
         id: messageId,
         role: "user",
@@ -178,7 +208,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to process message", details: String(error) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build:next": "next build",
     "build": "npx @cloudflare/next-on-pages@1",
+    "preview": "npx wrangler pages dev .vercel/output/static --compatibility-flag=nodejs_compat",
     "start": "next start",
     "lint": "eslint",
     "deploy": "npx wrangler pages deploy .vercel/output/static --project-name=arthyx"

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getJobStatus } from "@/lib/redis";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
@@ -8,12 +9,15 @@ export async function GET(request: NextRequest) {
   const jobId = searchParams.get("jobId");
 
   if (!jobId) {
-    return NextResponse.json({ error: "Missing jobId parameter" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing jobId parameter" },
+      { status: 400 },
+    );
   }
 
   try {
     const status = await getJobStatus(jobId);
-    
+
     if (!status) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
@@ -22,7 +26,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to fetch status", details: String(error) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSignedUploadUrl } from "@/lib/supabase";
 
+export const runtime = "edge";
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
@@ -19,7 +21,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
