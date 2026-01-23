@@ -23,7 +23,7 @@
     "lucide-react": "^0.562.0",
     "mammoth": "^1.11.0",
     "neo4j-driver": "^6.0.1",
-    "next": "14.2.15",
+    "next": "14.2.35",
     "pdf-lib": "^1.17.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -36,13 +36,13 @@
     "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
-    "@cloudflare/next-on-pages": "^1.13.0",
+    "@cloudflare/next-on-pages": "^1.13.16",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^9",
-    "eslint-config-next": "14.2.15",
+    "eslint-config-next": "16.1.4",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wrangler": "^3.0.0"
