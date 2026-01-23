@@ -1,4 +1,15 @@
-import neo4j, { Driver, Session } from "neo4j-driver";
+import type { Driver, Session } from "neo4j-driver";
+
+type Neo4jModule = typeof import("neo4j-driver");
+
+let neo4jModule: Neo4jModule | null = null;
+
+async function getNeo4j(): Promise<Neo4jModule> {
+  if (!neo4jModule) {
+    neo4jModule = await import("neo4j-driver");
+  }
+  return neo4jModule;
+}
 
 let driver: Driver | null = null;
 let lastConnectionAttempt = 0;
@@ -9,11 +20,15 @@ const log = (step: string, data?: object) => {
 };
 
 async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isConfigured(): boolean {
-  return !!(process.env.NEO4J_URI && process.env.NEO4J_USERNAME && process.env.NEO4J_PASSWORD);
+  return !!(
+    process.env.NEO4J_URI &&
+    process.env.NEO4J_USERNAME &&
+    process.env.NEO4J_PASSWORD
+  );
 }
 
 export async function initializeDriver(): Promise<Driver | null> {
@@ -21,19 +36,26 @@ export async function initializeDriver(): Promise<Driver | null> {
     return null;
   }
 
+  const neo4j = await getNeo4j();
+
   if (driver) {
     try {
       await driver.verifyConnectivity();
       return driver;
     } catch {
       log("Driver disconnected, reconnecting...");
-      try { await driver.close(); } catch {}
+      try {
+        await driver.close();
+      } catch {}
       driver = null;
     }
   }
 
   const now = Date.now();
-  if (now - lastConnectionAttempt < CONNECTION_RETRY_INTERVAL && lastConnectionAttempt > 0) {
+  if (
+    now - lastConnectionAttempt < CONNECTION_RETRY_INTERVAL &&
+    lastConnectionAttempt > 0
+  ) {
     return null;
   }
   lastConnectionAttempt = now;
@@ -43,18 +65,24 @@ export async function initializeDriver(): Promise<Driver | null> {
       log("Connecting", { attempt });
       driver = neo4j.driver(
         process.env.NEO4J_URI!,
-        neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!),
-        { 
+        neo4j.auth.basic(
+          process.env.NEO4J_USERNAME!,
+          process.env.NEO4J_PASSWORD!,
+        ),
+        {
           maxConnectionLifetime: 3 * 60 * 60 * 1000,
           maxConnectionPoolSize: 5,
           connectionAcquisitionTimeout: 30000,
-        }
+        },
       );
       await driver.verifyConnectivity();
       log("Connected successfully");
       return driver;
     } catch (error) {
-      log("Connection failed", { attempt, error: String(error).substring(0, 150) });
+      log("Connection failed", {
+        attempt,
+        error: String(error).substring(0, 150),
+      });
       driver = null;
       if (attempt < 3) await sleep(3000 * attempt);
     }
@@ -68,10 +96,18 @@ export async function getSession(): Promise<Session | null> {
   return d.session();
 }
 
-export async function healthCheck(): Promise<{ status: string; connected: boolean; message: string }> {
+export async function healthCheck(): Promise<{
+  status: string;
+  connected: boolean;
+  message: string;
+}> {
   const session = await getSession();
   if (!session) {
-    return { status: "error", connected: false, message: "Neo4j not configured or connection failed" };
+    return {
+      status: "error",
+      connected: false,
+      message: "Neo4j not configured or connection failed",
+    };
   }
   try {
     await session.run("RETURN 1");
@@ -84,7 +120,20 @@ export async function healthCheck(): Promise<{ status: string; connected: boolea
 }
 
 export interface Entity {
-  type: "Company" | "Regulation" | "Amount" | "Date" | "Sector" | "Policy" | "Clause" | "company" | "regulation" | "person" | "amount" | "date" | "sector";
+  type:
+    | "Company"
+    | "Regulation"
+    | "Amount"
+    | "Date"
+    | "Sector"
+    | "Policy"
+    | "Clause"
+    | "company"
+    | "regulation"
+    | "person"
+    | "amount"
+    | "date"
+    | "sector";
   name: string;
   properties?: Record<string, string | number>;
 }
@@ -100,7 +149,7 @@ export interface Relationship {
 
 export async function extractEntitiesFromText(
   text: string,
-  sessionId: string
+  sessionId: string,
 ): Promise<{ entities: Entity[]; relationships: Relationship[] }> {
   const entities: Entity[] = [];
   const relationships: Relationship[] = [];
@@ -138,10 +187,14 @@ export async function extractEntitiesFromText(
     /\b\d+(?:,\d+)*(?:\.\d+)?\s*(?:crore|lakh|million|billion|lac)s?\b/gi,
   ];
 
-  const addEntity = (type: Entity["type"], name: string, props?: Record<string, string | number>) => {
-    const cleanName = name.trim().replace(/\s+/g, ' ');
+  const addEntity = (
+    type: Entity["type"],
+    name: string,
+    props?: Record<string, string | number>,
+  ) => {
+    const cleanName = name.trim().replace(/\s+/g, " ");
     if (cleanName.length > 2 && cleanName.length < 80) {
-      if (!entities.find(e => e.name === cleanName && e.type === type)) {
+      if (!entities.find((e) => e.name === cleanName && e.type === type)) {
         entities.push({ type, name: cleanName, properties: props });
       }
     }
@@ -177,10 +230,10 @@ export async function extractEntitiesFromText(
     }
   }
 
-  const companies = entities.filter(e => e.type === "Company");
-  const regulations = entities.filter(e => e.type === "Regulation");
-  const clauses = entities.filter(e => e.type === "Clause");
-  const policies = entities.filter(e => e.type === "Policy");
+  const companies = entities.filter((e) => e.type === "Company");
+  const regulations = entities.filter((e) => e.type === "Regulation");
+  const clauses = entities.filter((e) => e.type === "Clause");
+  const policies = entities.filter((e) => e.type === "Policy");
 
   for (const company of companies) {
     for (const regulation of regulations) {
@@ -215,7 +268,11 @@ export async function extractEntitiesFromText(
     }
   }
 
-  await saveToNeo4j(sessionId, entities.slice(0, 100), relationships.slice(0, 50));
+  await saveToNeo4j(
+    sessionId,
+    entities.slice(0, 100),
+    relationships.slice(0, 50),
+  );
 
   return { entities, relationships };
 }
@@ -223,7 +280,7 @@ export async function extractEntitiesFromText(
 async function saveToNeo4j(
   sessionId: string,
   entities: Entity[],
-  relationships: Relationship[]
+  relationships: Relationship[],
 ): Promise<void> {
   const session = await getSession();
   if (!session) {
@@ -232,21 +289,30 @@ async function saveToNeo4j(
   }
 
   try {
-    log("Saving to Neo4j", { entities: entities.length, relationships: relationships.length });
+    log("Saving to Neo4j", {
+      entities: entities.length,
+      relationships: relationships.length,
+    });
 
     for (const entity of entities) {
       try {
-        await session.run(`
+        await session.run(
+          `
           MERGE (n:Entity {name: $name, sessionId: $sessionId})
           SET n.type = $type, n.createdAt = $timestamp
-        `, {
-          name: entity.name,
-          sessionId,
-          type: entity.type,
-          timestamp: Date.now(),
-        });
+        `,
+          {
+            name: entity.name,
+            sessionId,
+            type: entity.type,
+            timestamp: Date.now(),
+          },
+        );
       } catch (entityError) {
-        log("Entity creation failed", { name: entity.name, error: String(entityError).substring(0, 50) });
+        log("Entity creation failed", {
+          name: entity.name,
+          error: String(entityError).substring(0, 50),
+        });
       }
     }
 
@@ -254,25 +320,27 @@ async function saveToNeo4j(
 
     for (const rel of relationships) {
       try {
-        await session.run(`
+        await session.run(
+          `
           MATCH (a:Entity {name: $fromName, sessionId: $sessionId})
           MATCH (b:Entity {name: $toName, sessionId: $sessionId})
           MERGE (a)-[r:RELATES_TO {type: $relationType}]->(b)
           SET r.createdAt = $timestamp
-        `, {
-          fromName: rel.fromName,
-          toName: rel.toName,
-          relationType: rel.relationType,
-          sessionId,
-          timestamp: Date.now(),
-        });
+        `,
+          {
+            fromName: rel.fromName,
+            toName: rel.toName,
+            relationType: rel.relationType,
+            sessionId,
+            timestamp: Date.now(),
+          },
+        );
       } catch (relError) {
         log("Relationship failed", { from: rel.fromName, to: rel.toName });
       }
     }
 
     log("Relationships saved", { count: relationships.length });
-
   } catch (error) {
     log("Neo4j save error", { error: String(error).substring(0, 200) });
   } finally {
@@ -281,21 +349,28 @@ async function saveToNeo4j(
 }
 
 export async function getSessionGraph(sessionId: string): Promise<{
-  nodes: Array<{ id: string; type: string; properties?: Record<string, unknown> }>;
+  nodes: Array<{
+    id: string;
+    type: string;
+    properties?: Record<string, unknown>;
+  }>;
   edges: Array<{ from: string; to: string; type: string }>;
 }> {
   const session = await getSession();
   if (!session) return { nodes: [], edges: [] };
-  
+
   try {
-    const result = await session.run(`
+    const result = await session.run(
+      `
       MATCH (n {sessionId: $sessionId})
       OPTIONAL MATCH (n)-[r]->(m {sessionId: $sessionId})
       WITH collect(distinct n) as nodes, collect(distinct {from: n.name, to: m.name, type: type(r)}) as rels
       RETURN 
         [n IN nodes | {id: n.name, type: labels(n)[0], properties: properties(n)}] as nodes,
         [r IN rels WHERE r.to IS NOT NULL | r] as edges
-    `, { sessionId });
+    `,
+      { sessionId },
+    );
 
     const record = result.records[0];
     return {
@@ -310,22 +385,25 @@ export async function getSessionGraph(sessionId: string): Promise<{
 export async function queryRelatedEntities(
   sessionId: string,
   entityName: string,
-  depth: number = 2
+  depth: number = 2,
 ): Promise<{ paths: Array<{ nodes: string[]; relationships: string[] }> }> {
   const session = await getSession();
   if (!session) return { paths: [] };
-  
+
   try {
-    const result = await session.run(`
+    const result = await session.run(
+      `
       MATCH path = (start {name: $name, sessionId: $sessionId})-[*1..${depth}]-(connected)
       RETURN 
         [node in nodes(path) | node.name] as nodes,
         [rel in relationships(path) | type(rel)] as relationships
       LIMIT 20
-    `, { name: entityName, sessionId });
+    `,
+      { name: entityName, sessionId },
+    );
 
     return {
-      paths: result.records.map(r => ({
+      paths: result.records.map((r) => ({
         nodes: r.get("nodes"),
         relationships: r.get("relationships"),
       })),
@@ -338,9 +416,11 @@ export async function queryRelatedEntities(
 export async function clearSessionGraph(sessionId: string): Promise<void> {
   const session = await getSession();
   if (!session) return;
-  
+
   try {
-    await session.run(`MATCH (n {sessionId: $sessionId}) DETACH DELETE n`, { sessionId });
+    await session.run(`MATCH (n {sessionId: $sessionId}) DETACH DELETE n`, {
+      sessionId,
+    });
     log("Session graph cleared", { sessionId });
   } finally {
     await session.close();
@@ -354,19 +434,22 @@ export async function getGraphStats(sessionId: string): Promise<{
 }> {
   const session = await getSession();
   if (!session) return { nodeCount: 0, relationshipCount: 0, nodeTypes: {} };
-  
+
   try {
-    const result = await session.run(`
+    const result = await session.run(
+      `
       MATCH (n {sessionId: $sessionId})
       OPTIONAL MATCH (n)-[r]->(m {sessionId: $sessionId})
       WITH labels(n)[0] as nodeType, count(distinct n) as nodeCount, count(distinct r) as relCount
       RETURN collect({type: nodeType, count: nodeCount}) as nodeTypes, sum(relCount) as totalRels
-    `, { sessionId });
+    `,
+      { sessionId },
+    );
 
     const record = result.records[0];
     const nodeTypes: Record<string, number> = {};
     let totalNodes = 0;
-    
+
     for (const nt of record?.get("nodeTypes") || []) {
       if (nt.type) {
         nodeTypes[nt.type] = nt.count.toNumber ? nt.count.toNumber() : nt.count;
@@ -376,7 +459,8 @@ export async function getGraphStats(sessionId: string): Promise<{
 
     return {
       nodeCount: totalNodes,
-      relationshipCount: record?.get("totalRels")?.toNumber?.() || record?.get("totalRels") || 0,
+      relationshipCount:
+        record?.get("totalRels")?.toNumber?.() || record?.get("totalRels") || 0,
       nodeTypes,
     };
   } finally {
@@ -387,19 +471,22 @@ export async function getGraphStats(sessionId: string): Promise<{
 export async function queryRiskContagion(
   sessionId: string,
   startEntity: string,
-  depth: number = 2
+  depth: number = 2,
 ): Promise<{ path: string[]; relationships: string[] }[]> {
   const session = await getSession();
   if (!session) return [];
   try {
-    const result = await session.run(`
+    const result = await session.run(
+      `
       MATCH path = (start {name: $name, sessionId: $sessionId})-[*1..${depth}]-(connected)
       RETURN [node in nodes(path) | node.name] as path,
              [rel in relationships(path) | type(rel)] as rels
       LIMIT 10
-    `, { name: startEntity, sessionId });
+    `,
+      { name: startEntity, sessionId },
+    );
 
-    return result.records.map(record => ({
+    return result.records.map((record) => ({
       path: record.get("path"),
       relationships: record.get("rels"),
     }));
