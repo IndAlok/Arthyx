@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, CheckCircle, AlertCircle, Loader2, X, File } from "lucide-react";
-import { upload } from "@vercel/blob/client";
+import { uploadFile } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 interface FileUploadProps {
@@ -47,12 +47,9 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     return null;
   };
 
-  const uploadToBlob = async (file: File): Promise<string> => {
-    const ext = file.name.split(".").pop() || "";
-    const baseName = file.name.replace(`.${ext}`, "");
-    const uniqueName = `${baseName}_${Date.now()}.${ext}`;
-    const blob = await upload(uniqueName, file, { access: "public", handleUploadUrl: "/api/blob" });
-    return blob.url;
+  const uploadToStorage = async (file: File): Promise<string> => {
+    const { url } = await uploadFile(file);
+    return url;
   };
 
   const processWithAsync = async (
@@ -60,9 +57,6 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     filename: string,
     updateStatus: (msg: string, pct: number) => void
   ): Promise<{ sessionId: string; pages: number }> => {
-    console.log(`[FileUpload] Starting direct processing for ${filename}`);
-    console.log(`[FileUpload] Blob URL: ${blobUrl.substring(0, 80)}...`);
-    
     updateStatus("Initiating processing job...", 5);
     
     const response = await fetch("/api/direct-upload", {
@@ -82,20 +76,17 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
       throw new Error(error || "Failed to start job");
     }
     
-    console.log(`[FileUpload] Job started: ${jobId}`);
     updateStatus("Processing queued...", 10);
 
-    // Poll for status
     let pollCount = 0;
     while (true) {
       await new Promise(resolve => setTimeout(resolve, 2000));
       pollCount++;
       
       const statusRes = await fetch(`/api/job-status?jobId=${jobId}`);
-      if (!statusRes.ok) continue; // Retry silently on status fetch error
+      if (!statusRes.ok) continue;
       
       const statusData = await statusRes.json();
-      console.log(`[FileUpload] Poll ${pollCount}:`, statusData);
       
       if (statusData.status === "failed") {
         throw new Error(statusData.error || "Processing failed");
@@ -109,10 +100,8 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
         };
       }
       
-      // Update progress
       updateStatus(statusData.message || "Processing...", statusData.progress || 10);
       
-      // Timeout safety (20 minutes)
       if (pollCount > 600) {
         throw new Error("Processing timeout - job took too long");
       }
@@ -191,8 +180,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
 
         try {
           updateStatus(`Uploading ${file.name}...`, 5);
-          const blobUrl = await uploadToBlob(file);
-          console.log(`[FileUpload] Uploaded to blob: ${blobUrl}`);
+          const blobUrl = await uploadToStorage(file);
 
           if (isLarge) {
             updateStatus("Large PDF - async background processing...", 10);
@@ -223,7 +211,6 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
             });
           }
         } catch (error) {
-          console.error(`[FileUpload] Error:`, error);
           setFiles(prev => {
             const updated = new Map(prev);
             updated.set(file.name, { ...uploadedFile, status: "error", message: String(error) });

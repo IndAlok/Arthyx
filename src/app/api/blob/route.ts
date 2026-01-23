@@ -1,39 +1,25 @@
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextRequest, NextResponse } from "next/server";
+import { getSignedUploadUrl } from "@/lib/supabase";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const body = (await request.json()) as HandleUploadBody;
-
   try {
-    const jsonResponse = await handleUpload({
-      body,
-      request,
-      onBeforeGenerateToken: async () => {
-        return {
-          allowedContentTypes: [
-            "application/pdf",
-            "image/png",
-            "image/jpeg",
-            "image/webp",
-            "image/tiff",
-            "application/msword",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/vnd.ms-excel",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "text/csv",
-            "text/plain",
-            "text/markdown",
-          ],
-          maximumSizeInBytes: 50 * 1024 * 1024,
-        };
-      },
-    });
+    const body = await request.json();
+    const { filename } = body;
 
-    return NextResponse.json(jsonResponse);
+    if (!filename) {
+      return NextResponse.json({ error: "Filename required" }, { status: 400 });
+    }
+
+    const { signedUrl, path } = await getSignedUploadUrl(filename);
+
+    return NextResponse.json({
+      uploadUrl: signedUrl,
+      path,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
-      { status: 400 }
+      { status: 500 }
     );
   }
 }

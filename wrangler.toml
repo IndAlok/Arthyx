@@ -1,0 +1,6 @@
+name = "arthyx"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = ".vercel/output/static"
+
+[vars]
+NODE_VERSION = "18"
