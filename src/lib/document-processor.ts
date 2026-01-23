@@ -1,6 +1,4 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import mammoth from "mammoth";
-import * as XLSX from "xlsx-js-style";
 
 export type DocumentType = "pdf" | "image" | "word" | "excel" | "text" | "unknown";
 
@@ -33,54 +31,46 @@ function detectDocumentType(filename: string): DocumentType {
   
   const imageExtensions = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff"];
   const wordExtensions = ["doc", "docx"];
-  const excelExtensions = ["xls", "xlsx", "csv"];
+  const excelExtensions = ["xls", "xlsx"];
   const textExtensions = ["txt", "md", "json", "xml", "html", "css", "js", "ts"];
   
   if (ext === "pdf") return "pdf";
   if (imageExtensions.includes(ext)) return "image";
   if (wordExtensions.includes(ext)) return "word";
+  if (ext === "csv") return "text";
   if (excelExtensions.includes(ext)) return "excel";
   if (textExtensions.includes(ext)) return "text";
   
   return "unknown";
 }
 
-async function extractTextFromWord(buffer: Buffer): Promise<string> {
-  try {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value;
-  } catch (error) {
-    log("Word extraction error", { error: String(error) });
-    return "";
+function guessMimeType(filename: string, fallback: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".tiff") || lower.endsWith(".tif")) return "image/tiff";
+
+  if (lower.endsWith(".docx")) {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   }
-}
+  if (lower.endsWith(".doc")) return "application/msword";
 
-function extractTextFromExcel(buffer: Buffer): { text: string; sheets: number } {
-  try {
-    const workbook = XLSX.read(buffer, { type: "buffer" });
-    let fullText = "";
-
-    for (const sheetName of workbook.SheetNames) {
-      const sheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
-      
-      fullText += `\n=== SHEET: ${sheetName} ===\n`;
-      if (jsonData.length > 0) {
-        const headers = jsonData[0] || [];
-        fullText += "| " + headers.map(String).join(" | ") + " |\n";
-        fullText += "| " + headers.map(() => "---").join(" | ") + " |\n";
-        for (let i = 1; i < Math.min(jsonData.length, 500); i++) {
-          const row = jsonData[i] || [];
-          fullText += "| " + row.map(String).join(" | ") + " |\n";
-        }
-      }
-    }
-
-    return { text: fullText, sheets: workbook.SheetNames.length };
-  } catch (error) {
-    log("Excel extraction error", { error: String(error) });
-    return { text: "", sheets: 0 };
+  if (lower.endsWith(".xlsx")) {
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   }
+  if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+
+  if (lower.endsWith(".csv")) return "text/csv";
+  if (lower.endsWith(".txt")) return "text/plain";
+  if (lower.endsWith(".md")) return "text/markdown";
+  if (lower.endsWith(".json")) return "application/json";
+  if (lower.endsWith(".xml")) return "application/xml";
+  if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
+
+  return fallback;
 }
 
 function extractTextFromPlainText(buffer: Buffer): string {
@@ -273,15 +263,39 @@ export async function processDocument(
       break;
 
     case "word":
-      onProgress?.("Extracting Word content...");
-      fullText = await extractTextFromWord(buffer);
+      requiresOCR = true;
+      processingMethod = "ocr";
+      onProgress?.("Extracting Word content (AI)...");
+      {
+        const mimeType = guessMimeType(filename, "application/octet-stream");
+        const visionResult = await extractWithGeminiVision(
+          buffer,
+          mimeType,
+          filename,
+          onProgress,
+        );
+        fullText = visionResult.text;
+        pageCount = visionResult.pages;
+        language = visionResult.language;
+      }
       break;
 
     case "excel":
-      onProgress?.("Processing spreadsheet...");
-      const excelResult = extractTextFromExcel(buffer);
-      fullText = excelResult.text;
-      pageCount = excelResult.sheets;
+      requiresOCR = true;
+      processingMethod = "ocr";
+      onProgress?.("Processing spreadsheet (AI)...");
+      {
+        const mimeType = guessMimeType(filename, "application/octet-stream");
+        const visionResult = await extractWithGeminiVision(
+          buffer,
+          mimeType,
+          filename,
+          onProgress,
+        );
+        fullText = visionResult.text;
+        pageCount = visionResult.pages;
+        language = visionResult.language;
+      }
       break;
 
     case "pdf":
@@ -290,9 +304,10 @@ export async function processDocument(
       processingMethod = "ocr";
       onProgress?.("Running vision extraction...");
       
-      const mimeType = documentType === "pdf" ? "application/pdf" :
-        filename.toLowerCase().endsWith(".png") ? "image/png" :
-        filename.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
+      const mimeType = guessMimeType(
+        filename,
+        documentType === "pdf" ? "application/pdf" : "image/jpeg",
+      );
       
       const visionResult = await extractWithGeminiVision(buffer, mimeType, filename, onProgress);
       fullText = visionResult.text;
