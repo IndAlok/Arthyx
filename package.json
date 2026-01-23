@@ -4,11 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npx @cloudflare/next-on-pages@1",
     "start": "next start",
     "lint": "eslint",
-    "pages:build": "npx @cloudflare/next-on-pages@1",
-    "pages:dev": "npx wrangler pages dev .vercel/output/static --compatibility-date=2024-11-01"
+    "deploy": "npx wrangler pages deploy .vercel/output/static --project-name=arthyx"
   },
   "dependencies": {
     "@google-cloud/vision": "^5.3.4",
