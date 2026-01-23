@@ -8,7 +8,6 @@ import { extractEntitiesFromText } from "@/lib/neo4j";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_CHUNKS_PER_FILE = 50;
 
 const log = (step: string, data?: object) => {

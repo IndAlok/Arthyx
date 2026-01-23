@@ -75,13 +75,13 @@ export async function POST(request: NextRequest) {
               }
             }
           }
-        } catch (llamaError) {
+        } catch {
           // Continue without LlamaIndex sources if error
         }
 
         try {
           graphData = await getSessionGraph(sessionId);
-        } catch (graphError) {
+        } catch {
           // Continue without graph data if error
         }
       } 
