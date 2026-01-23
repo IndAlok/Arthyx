@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Pinecone } from "@pinecone-database/pinecone";
+import { queryDocuments } from "@/lib/pinecone";
 
 export interface RAGQueryResult {
   response: string;
@@ -20,12 +20,6 @@ function getGeminiClient() {
   return new GoogleGenerativeAI(apiKey);
 }
 
-function getPineconeClient() {
-  const apiKey = process.env.PINECONE_API_KEY;
-  if (!apiKey) throw new Error("PINECONE_API_KEY not configured");
-  return new Pinecone({ apiKey });
-}
-
 export async function generateEmbedding(text: string): Promise<number[]> {
   const genAI = getGeminiClient();
   const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
@@ -44,22 +38,24 @@ export async function queryWithLlamaIndex(
   try {
     const queryEmbedding = await generateEmbedding(query);
 
-    const pinecone = getPineconeClient();
-    const index = pinecone.index("arthyx");
+    const matches = await queryDocuments(queryEmbedding, sessionId, topK);
 
-    const queryResponse = await index.query({
-      vector: queryEmbedding,
-      topK,
-      includeMetadata,
-      filter: { sessionId: { $eq: sessionId } },
+    const sources: RAGSource[] = matches.map((match: any) => {
+      const md = (match.metadata || {}) as Record<string, unknown>;
+      const text =
+        (md.text as string) ||
+        (md.content as string) ||
+        "";
+
+      return {
+        pageNumber: (md.pageNumber as number) || 0,
+        text,
+        score: (match.score as number) || 0,
+        type: ((md.type as string) || (md.chunkType as string) || "text") as
+          | "text"
+          | "table",
+      };
     });
-
-    const sources: RAGSource[] = queryResponse.matches?.map(match => ({
-      pageNumber: (match.metadata?.pageNumber as number) || 0,
-      text: (match.metadata?.text as string) || "",
-      score: match.score || 0,
-      type: ((match.metadata?.type as string) || "text") as "text" | "table",
-    })) || [];
 
     if (sources.length === 0) {
       return {

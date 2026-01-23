@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Pinecone } from "@pinecone-database/pinecone";
 import { createSession, addDocument, updateJobStatus } from "@/lib/redis";
 import { extractEntitiesFromText } from "@/lib/neo4j";
+import { upsertVectors } from "@/lib/pinecone";
 
 export const runtime = "edge";
 
@@ -156,8 +156,6 @@ async function processDocumentBackground(
     });
 
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-    const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
-    const index = pinecone.index("arthyx");
 
     let totalChunks = 0;
     let totalTextLength = 0;
@@ -209,7 +207,7 @@ async function processDocumentBackground(
         }));
 
         for (let i = 0; i < vectors.length; i += 50) {
-          await index.upsert(vectors.slice(i, i + 50));
+          await upsertVectors(vectors.slice(i, i + 50));
         }
 
         totalChunks += chunks.length;

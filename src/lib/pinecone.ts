@@ -1,23 +1,59 @@
-import { Pinecone } from "@pinecone-database/pinecone";
-
-let pineconeInstance: Pinecone | null = null;
-
 const log = (step: string, data?: object) => {
   console.log(`[PINECONE] ${step}`, data ? JSON.stringify(data) : "");
 };
 
-export function getPineconeClient(): Pinecone {
-  if (!pineconeInstance) {
-    pineconeInstance = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY!,
-    });
+function getPineconeApiKey(): string {
+  const apiKey = process.env.PINECONE_API_KEY;
+  if (!apiKey) {
+    throw new Error("PINECONE_API_KEY not configured");
   }
-  return pineconeInstance;
+  return apiKey;
 }
 
-export async function getIndex() {
-  const client = getPineconeClient();
-  return client.index("arthyx", process.env.PINECONE_INDEX_HOST);
+function getPineconeBaseUrl(): string {
+  const host = process.env.PINECONE_INDEX_HOST;
+  if (!host) {
+    throw new Error(
+      "PINECONE_INDEX_HOST not configured (expected the Pinecone index host URL)"
+    );
+  }
+
+  const normalizedHost = host
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/$/, "");
+
+  return `https://${normalizedHost}`;
+}
+
+async function pineconeRequest<TResponse>(
+  path: string,
+  body: Record<string, unknown>
+): Promise<TResponse> {
+  const url = `${getPineconeBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
+  const apiKey = getPineconeApiKey();
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Api-Key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Pinecone request failed (${res.status}): ${text || res.statusText}`);
+  }
+
+  return (await res.json()) as TResponse;
+}
+
+export interface PineconeVector {
+  id: string;
+  values: number[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface DocumentChunk {
@@ -33,13 +69,16 @@ export interface DocumentChunk {
   embedding?: number[];
 }
 
+export async function upsertVectors(vectors: PineconeVector[]): Promise<void> {
+  if (vectors.length === 0) return;
+  await pineconeRequest("/vectors/upsert", { vectors });
+}
+
 export async function upsertDocumentChunks(
   chunks: DocumentChunk[],
   embeddings: number[][],
   sessionId: string
 ) {
-  const index = await getIndex();
-  
   const vectors = chunks.map((chunk, i) => ({
     id: chunk.id,
     values: embeddings[i],
@@ -54,7 +93,7 @@ export async function upsertDocumentChunks(
   }));
 
   log("Upserting vectors", { count: vectors.length, sessionId });
-  await index.upsert(vectors);
+  await upsertVectors(vectors);
   log("Upsert complete");
 }
 
@@ -63,11 +102,9 @@ export async function queryDocuments(
   sessionId: string,
   topK: number = 15
 ) {
-  const index = await getIndex();
-  
   log("Querying documents", { sessionId, topK });
-  
-  const results = await index.query({
+
+  const results = await pineconeRequest<{ matches?: Array<Record<string, any>> }>("/query", {
     vector: queryEmbedding,
     topK,
     includeMetadata: true,
@@ -75,7 +112,7 @@ export async function queryDocuments(
       sessionId: { $eq: sessionId },
     },
   });
-  
+
   const matches = results.matches || [];
   log("Query results", { 
     matchCount: matches.length,
@@ -86,11 +123,10 @@ export async function queryDocuments(
 }
 
 export async function deleteSessionDocuments(sessionId: string) {
-  const index = await getIndex();
   log("Deleting session documents", { sessionId });
   
   try {
-    await index.deleteMany({
+    await pineconeRequest("/vectors/delete", {
       filter: { sessionId: { $eq: sessionId } },
     });
     log("Session documents deleted");
