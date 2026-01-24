@@ -1,7 +1,18 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 
-const isCloudflarePagesBuild = Boolean(process.env.CF_PAGES);
+const isCloudflarePagesBuild = Boolean(
+  process.env.CF_PAGES ||
+  process.env.CF_PAGES_BRANCH ||
+  process.env.CF_PAGES_COMMIT_SHA ||
+  process.env.CF_PAGES_URL,
+);
+
+// Opt-in gate: by default we do NOT run `wrangler pages deploy`.
+// This prevents Cloudflare Pages builds (and other CI) from failing due to missing/insufficient API token scopes.
+const shouldRunWranglerDeploy =
+  process.env.RUN_WRANGLER_DEPLOY === "1" ||
+  process.env.RUN_WRANGLER_DEPLOY === "true";
 
 // Cloudflare Pages automatically deploys the build output after the build step.
 // Running `wrangler pages deploy` inside the Pages build environment requires API tokens
@@ -10,6 +21,13 @@ if (isCloudflarePagesBuild) {
   // Keep output explicit so build logs explain why deploy is skipped.
   console.log(
     "[deploy] Detected Cloudflare Pages build environment; skipping `wrangler pages deploy` (Pages deploys automatically).",
+  );
+  process.exit(0);
+}
+
+if (!shouldRunWranglerDeploy) {
+  console.log(
+    "[deploy] Skipping `wrangler pages deploy` (set RUN_WRANGLER_DEPLOY=1 to enable manual/CI deploy).",
   );
   process.exit(0);
 }

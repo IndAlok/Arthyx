@@ -145,10 +145,17 @@ If you want to deploy from your own machine or CI (outside Cloudflare Pages), yo
 
 ```bash
 npm run build
-npm run deploy
+RUN_WRANGLER_DEPLOY=1 npm run deploy
 ```
 
 This requires Wrangler authentication (either `wrangler login` or a `CLOUDFLARE_API_TOKEN` with permission to deploy to Cloudflare Pages projects).
+
+On Windows PowerShell:
+
+```powershell
+$env:RUN_WRANGLER_DEPLOY='1'
+npm run deploy
+```
 
 ## Contributing
 
