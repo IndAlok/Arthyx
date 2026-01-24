@@ -1,6 +1,12 @@
 import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
 import { getRelevantKnowledge } from "./knowledge-base";
-import { getCachedResponse, setCachedResponse, getCachedEmbedding, setCachedEmbedding, createHash } from "./redis";
+import {
+  getCachedResponse,
+  setCachedResponse,
+  getCachedEmbedding,
+  setCachedEmbedding,
+  createHash,
+} from "./redis";
 
 let genAI: GoogleGenerativeAI | null = null;
 
@@ -28,13 +34,13 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     const text = texts[i];
     const truncatedText = text.length > 1500 ? text.substring(0, 1500) : text;
     const textHash = createHash(truncatedText);
-    
+
     const cached = await getCachedEmbedding(textHash);
     if (cached) {
       embeddings.push(cached);
       continue;
     }
-    
+
     try {
       const result = await model.embedContent(truncatedText);
       embeddings.push(result.embedding.values);
@@ -71,15 +77,28 @@ export interface ChatResponse {
   chartConfig?: {
     type: "bar" | "line" | "pie" | "area" | "scatter";
     title: string;
-    data: Array<{ name: string; value: number; [key: string]: string | number }>;
+    data: Array<{
+      name: string;
+      value: number;
+      [key: string]: string | number;
+    }>;
   };
   riskAnalysis?: {
     overallRisk: "low" | "medium" | "high" | "critical";
     riskScore: number;
-    factors: Array<{ factor: string; impact: "positive" | "negative" | "neutral"; description: string }>;
+    factors: Array<{
+      factor: string;
+      impact: "positive" | "negative" | "neutral";
+      description: string;
+    }>;
     recommendations: string[];
   };
-  metrics?: Array<{ name: string; value: number | string; unit?: string; change?: number }>;
+  metrics?: Array<{
+    name: string;
+    value: number | string;
+    unit?: string;
+    change?: number;
+  }>;
   entities?: Array<{ name: string; type: string }>;
   hasDocumentContext: boolean;
 }
@@ -162,19 +181,24 @@ export async function generateChatResponse(
   messages: ChatMessage[],
   sources: SourceContext[],
   documentFilenames: string[],
-  hasDocuments: boolean
+  hasDocuments: boolean,
 ): Promise<ChatResponse> {
   const model = getChatModel();
-  
+
   const lastMessage = messages[messages.length - 1]?.content || "";
-  
-  const cacheKey = createHash(`${lastMessage}_${sources.map(s => s.excerpt).join("_").substring(0, 500)}`);
+
+  const cacheKey = createHash(
+    `${lastMessage}_${sources
+      .map((s) => s.excerpt)
+      .join("_")
+      .substring(0, 500)}`,
+  );
   const cachedResponse = await getCachedResponse(cacheKey);
-  
+
   if (cachedResponse && !hasDocuments) {
     return JSON.parse(cachedResponse);
   }
-  
+
   const relevantKnowledge = getRelevantKnowledge(lastMessage);
 
   let contextSection = "";
@@ -262,19 +286,25 @@ Provide a comprehensive, well-formatted response with visual analysis when appro
     const citedSources: SourceContext[] = [];
     const sourceRegex = /\[Source:\s*([^,\]]+),?\s*Page\s*(\d+)\]/gi;
     let match;
-    
+
     while ((match = sourceRegex.exec(responseText)) !== null) {
       const filename = match[1].trim();
       const pageNumber = parseInt(match[2], 10);
-      
+
       const matchingSource = sources.find(
-        s => s.filename.toLowerCase().includes(filename.toLowerCase()) || 
-             filename.toLowerCase().includes(s.filename.toLowerCase())
+        (s) =>
+          s.filename.toLowerCase().includes(filename.toLowerCase()) ||
+          filename.toLowerCase().includes(s.filename.toLowerCase()),
       );
-      
-      if (matchingSource && !citedSources.some(
-        cs => cs.filename === matchingSource.filename && cs.pageNumber === pageNumber
-      )) {
+
+      if (
+        matchingSource &&
+        !citedSources.some(
+          (cs) =>
+            cs.filename === matchingSource.filename &&
+            cs.pageNumber === pageNumber,
+        )
+      ) {
         citedSources.push({
           ...matchingSource,
           pageNumber,
@@ -287,14 +317,20 @@ Provide a comprehensive, well-formatted response with visual analysis when appro
     }
 
     const entities: Array<{ name: string; type: string }> = [];
-    const companyMatches = responseText.match(/\b(HDFC|ICICI|SBI|Reliance|Tata|Infosys|TCS|Wipro)\b/gi);
+    const companyMatches = responseText.match(
+      /\b(HDFC|ICICI|SBI|Reliance|Tata|Infosys|TCS|Wipro)\b/gi,
+    );
     if (companyMatches) {
-      companyMatches.forEach(m => entities.push({ name: m, type: "company" }));
+      companyMatches.forEach((m) =>
+        entities.push({ name: m, type: "company" }),
+      );
     }
-    
-    const regMatches = responseText.match(/SEBI[\s\/\-]?(?:circular|guideline)?\s*\d{4}(?:\/\d+)?|RBI[\s\/\-]?(?:circular)?\s*\d{4}/gi);
+
+    const regMatches = responseText.match(
+      /SEBI[\s\/\-]?(?:circular|guideline)?\s*\d{4}(?:\/\d+)?|RBI[\s\/\-]?(?:circular)?\s*\d{4}/gi,
+    );
     if (regMatches) {
-      regMatches.forEach(m => entities.push({ name: m, type: "regulation" }));
+      regMatches.forEach((m) => entities.push({ name: m, type: "regulation" }));
     }
 
     const response: ChatResponse = {
@@ -318,7 +354,7 @@ Provide a comprehensive, well-formatted response with visual analysis when appro
 }
 
 export async function generateWithoutDocuments(
-  messages: ChatMessage[]
+  messages: ChatMessage[],
 ): Promise<ChatResponse> {
   return generateChatResponse(messages, [], [], false);
 }

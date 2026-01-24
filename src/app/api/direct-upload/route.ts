@@ -286,7 +286,12 @@ async function processDocumentBackground(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { blobUrl, filename, storagePath, sessionId: existingSessionId } = body;
+    const {
+      blobUrl,
+      filename,
+      storagePath,
+      sessionId: existingSessionId,
+    } = body;
 
     if (!blobUrl || !filename) {
       return NextResponse.json(
@@ -311,11 +316,15 @@ export async function POST(request: NextRequest) {
       message: "Job initialized",
     });
 
-    processDocumentBackground(jobId, blobUrl, filename, sessionId, storagePath).catch(
-      (err) => {
-        console.error("[DIRECT-UPLOAD] Background error:", err);
-      },
-    );
+    processDocumentBackground(
+      jobId,
+      blobUrl,
+      filename,
+      sessionId,
+      storagePath,
+    ).catch((err) => {
+      console.error("[DIRECT-UPLOAD] Background error:", err);
+    });
 
     return NextResponse.json({
       success: true,

@@ -121,6 +121,14 @@ Set these in Cloudflare Pages → Settings → Environment variables (Preview + 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
+Optional (recommended if you want to automatically delete uploaded files from Supabase Storage after indexing to save storage):
+
+- `SUPABASE_SERVICE_ROLE_KEY` (server-only; Supabase dashboard “Secret key”).
+
+Notes:
+
+- Never put `SUPABASE_SERVICE_ROLE_KEY` in any `NEXT_PUBLIC_*` variable.
+
 Notes:
 
 - Because Cloudflare Pages runs API routes on the Edge runtime, Word/Excel extraction is handled via Gemini (not Node-based parsers).
