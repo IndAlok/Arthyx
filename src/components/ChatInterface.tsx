@@ -2,7 +2,16 @@
 
 import { useState, useRef, FormEvent, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Sparkles, BookOpen, Edit3, X, Check, RefreshCw } from "lucide-react";
+import {
+  Send,
+  Loader2,
+  Sparkles,
+  BookOpen,
+  Edit3,
+  X,
+  Check,
+  RefreshCw,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import MarkdownRenderer from "./MarkdownRenderer";
 import SourceModal, { SourceData } from "./SourceModal";
@@ -13,7 +22,11 @@ import MetricsGrid from "./MetricsGrid";
 interface RiskAnalysis {
   overallRisk: "low" | "medium" | "high" | "critical";
   riskScore: number;
-  factors: Array<{ factor: string; impact: "positive" | "negative" | "neutral"; description: string }>;
+  factors: Array<{
+    factor: string;
+    impact: "positive" | "negative" | "neutral";
+    description: string;
+  }>;
   recommendations?: string[];
 }
 
@@ -28,7 +41,12 @@ interface Message {
     data: Array<{ name: string; value: number }>;
   };
   riskAnalysis?: RiskAnalysis;
-  metrics?: Array<{ name: string; value: number | string; unit?: string; change?: number }>;
+  metrics?: Array<{
+    name: string;
+    value: number | string;
+    unit?: string;
+    change?: number;
+  }>;
 }
 
 interface ChatInterfaceProps {
@@ -36,9 +54,7 @@ interface ChatInterfaceProps {
   onSourceClick?: (source: SourceData) => void;
 }
 
-export default function ChatInterface({
-  sessionId,
-}: ChatInterfaceProps) {
+export default function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -58,7 +74,7 @@ export default function ChatInterface({
       editInputRef.current.focus();
       editInputRef.current.setSelectionRange(
         editInputRef.current.value.length,
-        editInputRef.current.value.length
+        editInputRef.current.value.length,
       );
     }
   }, [editingId]);
@@ -85,11 +101,11 @@ export default function ChatInterface({
     setEditingId(null);
     setEditContent("");
 
-    const messageIndex = messages.findIndex(m => m.id === originalId);
+    const messageIndex = messages.findIndex((m) => m.id === originalId);
     if (messageIndex === -1) return;
 
     const newMessages = messages.slice(0, messageIndex);
-    
+
     const newUserMessage: Message = {
       id: `user_${Date.now()}`,
       role: "user",
@@ -99,19 +115,40 @@ export default function ChatInterface({
     setMessages([...newMessages, newUserMessage]);
     setIsLoading(true);
 
+    const readResponseBody = async (response: Response): Promise<any> => {
+      const text = await response.text().catch(() => "");
+      const contentType = response.headers.get("content-type") || "";
+
+      if (
+        contentType.includes("application/json") ||
+        text.trim().startsWith("{")
+      ) {
+        try {
+          return JSON.parse(text || "{}");
+        } catch {
+          // fall through
+        }
+      }
+
+      return {
+        success: false,
+        error: text || `${response.status} ${response.statusText}`,
+      };
+    };
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          message: editedContent, 
+        body: JSON.stringify({
+          message: editedContent,
           sessionId,
           isEdit: true,
-          originalMessageId: originalId
+          originalMessageId: originalId,
         }),
       });
 
-      const data = await response.json();
+      const data = await readResponseBody(response);
 
       if (data.success) {
         const assistantMessage: Message = {
@@ -125,15 +162,17 @@ export default function ChatInterface({
         };
 
         setMessages([...newMessages, newUserMessage, assistantMessage]);
-
-
       }
     } catch {
-      setMessages([...newMessages, newUserMessage, {
-        id: `error_${Date.now()}`,
-        role: "assistant",
-        content: "**Error:** Failed to regenerate response.",
-      }]);
+      setMessages([
+        ...newMessages,
+        newUserMessage,
+        {
+          id: `error_${Date.now()}`,
+          role: "assistant",
+          content: "**Error:** Failed to regenerate response.",
+        },
+      ]);
     } finally {
       setIsLoading(false);
       setTimeout(scrollToBottom, 100);
@@ -154,6 +193,27 @@ export default function ChatInterface({
     setInput("");
     setIsLoading(true);
 
+    const readResponseBody = async (response: Response): Promise<any> => {
+      const text = await response.text().catch(() => "");
+      const contentType = response.headers.get("content-type") || "";
+
+      if (
+        contentType.includes("application/json") ||
+        text.trim().startsWith("{")
+      ) {
+        try {
+          return JSON.parse(text || "{}");
+        } catch {
+          // fall through
+        }
+      }
+
+      return {
+        success: false,
+        error: text || `${response.status} ${response.statusText}`,
+      };
+    };
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -161,7 +221,7 @@ export default function ChatInterface({
         body: JSON.stringify({ message: userMessage.content, sessionId }),
       });
 
-      const data = await response.json();
+      const data = await readResponseBody(response);
 
       if (data.success) {
         const assistantMessage: Message = {
@@ -175,15 +235,13 @@ export default function ChatInterface({
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
-
-
       } else {
         setMessages((prev) => [
           ...prev,
           {
             id: `error_${Date.now()}`,
             role: "assistant",
-            content: `**Error:** ${data.error || "Something went wrong"}`,
+            content: `**Error:** ${data.error || data.details || "Something went wrong"}`,
           },
         ]);
       }
@@ -210,6 +268,27 @@ export default function ChatInterface({
     setMessages(newMessages);
     setIsLoading(true);
 
+    const readResponseBody = async (response: Response): Promise<any> => {
+      const text = await response.text().catch(() => "");
+      const contentType = response.headers.get("content-type") || "";
+
+      if (
+        contentType.includes("application/json") ||
+        text.trim().startsWith("{")
+      ) {
+        try {
+          return JSON.parse(text || "{}");
+        } catch {
+          // fall through
+        }
+      }
+
+      return {
+        success: false,
+        error: text || `${response.status} ${response.statusText}`,
+      };
+    };
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -217,7 +296,7 @@ export default function ChatInterface({
         body: JSON.stringify({ message: userMessage.content, sessionId }),
       });
 
-      const data = await response.json();
+      const data = await readResponseBody(response);
 
       if (data.success) {
         const assistantMessage: Message = {
@@ -231,15 +310,16 @@ export default function ChatInterface({
         };
 
         setMessages([...newMessages, assistantMessage]);
-
-
       }
     } catch {
-      setMessages([...newMessages, {
-        id: `error_${Date.now()}`,
-        role: "assistant",
-        content: "**Error:** Failed to regenerate response.",
-      }]);
+      setMessages([
+        ...newMessages,
+        {
+          id: `error_${Date.now()}`,
+          role: "assistant",
+          content: "**Error:** Failed to regenerate response.",
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
@@ -255,12 +335,16 @@ export default function ChatInterface({
           <div className="flex-1">
             <h2 className="font-semibold text-white">Arthyx Assistant</h2>
             <p className="text-xs text-slate-400">
-              {sessionId ? "Document Analysis Mode" : "Financial Knowledge Mode"}
+              {sessionId
+                ? "Document Analysis Mode"
+                : "Financial Knowledge Mode"}
             </p>
           </div>
           {!sessionId && (
             <div className="px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <span className="text-xs text-emerald-400">SEBI/RBI/Quant Knowledge</span>
+              <span className="text-xs text-emerald-400">
+                SEBI/RBI/Quant Knowledge
+              </span>
             </div>
           )}
         </div>
@@ -268,7 +352,7 @@ export default function ChatInterface({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
-              <motion.div 
+              <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 className="w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center mb-4"
@@ -279,7 +363,7 @@ export default function ChatInterface({
                 {sessionId ? "Documents Ready" : "Ask Anything Financial"}
               </h3>
               <p className="text-slate-400 max-w-md text-sm mb-4">
-                {sessionId 
+                {sessionId
                   ? "Your documents are loaded. Ask questions, request analysis, or generate visualizations."
                   : "Trained on SEBI, RBI, quantitative finance, and Indian markets. Ask me anything."}
               </p>
@@ -289,7 +373,7 @@ export default function ChatInterface({
                     "What is SEBI LODR?",
                     "Explain NPA classification",
                     "Calculate VaR example",
-                    "Basel III requirements"
+                    "Basel III requirements",
                   ].map((q) => (
                     <button
                       key={q}
@@ -316,7 +400,7 @@ export default function ChatInterface({
                 <div
                   className={cn(
                     "flex",
-                    message.role === "user" ? "justify-end" : "justify-start"
+                    message.role === "user" ? "justify-end" : "justify-start",
                   )}
                 >
                   <div
@@ -324,7 +408,7 @@ export default function ChatInterface({
                       "max-w-[90%] rounded-2xl relative group",
                       message.role === "user"
                         ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-3"
-                        : "bg-slate-800/70 text-slate-100 px-4 py-3"
+                        : "bg-slate-800/70 text-slate-100 px-4 py-3",
                     )}
                   >
                     {message.role === "user" && editingId === message.id ? (
@@ -362,7 +446,9 @@ export default function ChatInterface({
                     ) : (
                       <>
                         {message.role === "user" ? (
-                          <p className="whitespace-pre-wrap">{message.content}</p>
+                          <p className="whitespace-pre-wrap">
+                            {message.content}
+                          </p>
                         ) : (
                           <MarkdownRenderer content={message.content} />
                         )}
@@ -387,17 +473,21 @@ export default function ChatInterface({
                           </button>
                         )}
 
-                        {message.role === "assistant" && message.sources && message.sources.length > 0 && (
-                          <motion.button
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            onClick={() => openSourceModal(message.sources!)}
-                            className="mt-3 pt-3 border-t border-slate-700/50 w-full flex items-center justify-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 transition-colors group"
-                          >
-                            <BookOpen className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                            <span>View {message.sources.length} source(s)</span>
-                          </motion.button>
-                        )}
+                        {message.role === "assistant" &&
+                          message.sources &&
+                          message.sources.length > 0 && (
+                            <motion.button
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              onClick={() => openSourceModal(message.sources!)}
+                              className="mt-3 pt-3 border-t border-slate-700/50 w-full flex items-center justify-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 transition-colors group"
+                            >
+                              <BookOpen className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                              <span>
+                                View {message.sources.length} source(s)
+                              </span>
+                            </motion.button>
+                          )}
                       </>
                     )}
                   </div>
