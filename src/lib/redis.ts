@@ -5,8 +5,15 @@ const log = (step: string, data?: object) => {
 };
 
 function getUpstashConfig(): { url: string; token: string } {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const normalize = (value: string | undefined): string | undefined => {
+    if (!value) return undefined;
+    const trimmed = value.trim();
+    // Handle accidental quotes from copy/paste:  "..."  or  '...'
+    return trimmed.replace(/^['"]/, "").replace(/['"]$/, "");
+  };
+
+  const url = normalize(process.env.UPSTASH_REDIS_REST_URL);
+  const token = normalize(process.env.UPSTASH_REDIS_REST_TOKEN);
 
   if (!url || !token) {
     throw new Error(
