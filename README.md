@@ -78,6 +78,7 @@ Arthyx is open-source and ready for deployment on any Node.js compatible environ
     ```env
     GOOGLE_API_KEY=your_key
     PINECONE_API_KEY=your_key
+    PINECONE_INDEX_HOST=your_index_host
     NEO4J_URI=your_uri
     NEO4J_USERNAME=your_username
     NEO4J_PASSWORD=your_password
@@ -101,16 +102,26 @@ This project is configured for Cloudflare Pages using `@cloudflare/next-on-pages
 - **Build output directory**: `.vercel/output/static`
 - **Compatibility flags**: enable `nodejs_compat` (Preview + Production)
 
+Deployment notes:
+
+- Cloudflare Pages **deploys automatically** after the build finishes. You do **not** need a deploy command.
+- If you previously set a Pages “Deploy command” like `npm run deploy`, this repo now makes that command a safe no-op on Pages builds (so token/auth errors can’t break your deployment).
+
 ### Environment variables
 
 Set these in Cloudflare Pages → Settings → Environment variables (Preview + Production):
 
 - `GOOGLE_API_KEY`
 - `PINECONE_API_KEY`
+- `PINECONE_INDEX_HOST` (your Pinecone index host, e.g. `my-index-xxxx.svc.<region>.pinecone.io`)
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Notes:
+
+- Because Cloudflare Pages runs API routes on the Edge runtime, Word/Excel extraction is handled via Gemini (not Node-based parsers).
 
 Optional (only if you actually want Neo4j features):
 
@@ -127,6 +138,17 @@ For local preview, run under WSL/Linux/macOS:
 npm run build
 npm run preview
 ```
+
+### Optional: manual/CI deploy with Wrangler
+
+If you want to deploy from your own machine or CI (outside Cloudflare Pages), you can run:
+
+```bash
+npm run build
+npm run deploy
+```
+
+This requires Wrangler authentication (either `wrangler login` or a `CLOUDFLARE_API_TOKEN` with permission to deploy to Cloudflare Pages projects).
 
 ## Contributing
 

@@ -14,7 +14,7 @@ function getPineconeBaseUrl(): string {
   const host = process.env.PINECONE_INDEX_HOST;
   if (!host) {
     throw new Error(
-      "PINECONE_INDEX_HOST not configured (expected the Pinecone index host URL)"
+      "PINECONE_INDEX_HOST not configured (expected the Pinecone index host URL)",
     );
   }
 
@@ -28,7 +28,7 @@ function getPineconeBaseUrl(): string {
 
 async function pineconeRequest<TResponse>(
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ): Promise<TResponse> {
   const url = `${getPineconeBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
   const apiKey = getPineconeApiKey();
@@ -44,7 +44,9 @@ async function pineconeRequest<TResponse>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Pinecone request failed (${res.status}): ${text || res.statusText}`);
+    throw new Error(
+      `Pinecone request failed (${res.status}): ${text || res.statusText}`,
+    );
   }
 
   return (await res.json()) as TResponse;
@@ -77,7 +79,7 @@ export async function upsertVectors(vectors: PineconeVector[]): Promise<void> {
 export async function upsertDocumentChunks(
   chunks: DocumentChunk[],
   embeddings: number[][],
-  sessionId: string
+  sessionId: string,
 ) {
   const vectors = chunks.map((chunk, i) => ({
     id: chunk.id,
@@ -100,11 +102,13 @@ export async function upsertDocumentChunks(
 export async function queryDocuments(
   queryEmbedding: number[],
   sessionId: string,
-  topK: number = 15
+  topK: number = 15,
 ) {
   log("Querying documents", { sessionId, topK });
 
-  const results = await pineconeRequest<{ matches?: Array<Record<string, any>> }>("/query", {
+  const results = await pineconeRequest<{
+    matches?: Array<Record<string, any>>;
+  }>("/query", {
     vector: queryEmbedding,
     topK,
     includeMetadata: true,
@@ -114,17 +118,17 @@ export async function queryDocuments(
   });
 
   const matches = results.matches || [];
-  log("Query results", { 
+  log("Query results", {
     matchCount: matches.length,
-    topScore: matches[0]?.score 
+    topScore: matches[0]?.score,
   });
-  
+
   return matches;
 }
 
 export async function deleteSessionDocuments(sessionId: string) {
   log("Deleting session documents", { sessionId });
-  
+
   try {
     await pineconeRequest("/vectors/delete", {
       filter: { sessionId: { $eq: sessionId } },

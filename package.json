@@ -9,12 +9,11 @@
     "preview": "npx wrangler pages dev .vercel/output/static --compatibility-flag=nodejs_compat",
     "start": "next start",
     "lint": "eslint",
-    "deploy": "npx wrangler pages deploy .vercel/output/static --project-name=arthyx"
+    "deploy": "node scripts/deploy-pages.mjs"
   },
   "dependencies": {
     "@google-cloud/vision": "^5.3.4",
     "@google/generative-ai": "^0.24.1",
-    "@pinecone-database/pinecone": "^6.1.3",
     "@supabase/supabase-js": "^2.45.0",
     "@upstash/redis": "^1.35.8",
     "clsx": "^2.1.1",
@@ -22,9 +21,8 @@
     "framer-motion": "^12.23.26",
     "llamaindex": "^0.12.1",
     "lucide-react": "^0.562.0",
-    "mammoth": "^1.11.0",
     "neo4j-driver": "^6.0.1",
-    "next": "15.0.0",
+    "next": "16.1.4",
     "pdf-lib": "^1.17.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -33,8 +31,7 @@
     "recharts": "^3.6.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^3.4.0",
-    "xlsx-js-style": "^1.2.0"
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@cloudflare/next-on-pages": "^1.13.0",
@@ -44,7 +41,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^9",
-    "eslint-config-next": "15.0.0",
+    "eslint-config-next": "16.1.4",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wrangler": "^3.0.0"

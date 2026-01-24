@@ -30,7 +30,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 export async function queryWithLlamaIndex(
   query: string,
   sessionId: string,
-  options: { topK?: number; includeMetadata?: boolean } = {}
+  options: { topK?: number; includeMetadata?: boolean } = {},
 ): Promise<RAGQueryResult> {
   const { topK = 30, includeMetadata = true } = options;
   const startTime = Date.now();
@@ -42,10 +42,7 @@ export async function queryWithLlamaIndex(
 
     const sources: RAGSource[] = matches.map((match: any) => {
       const md = (match.metadata || {}) as Record<string, unknown>;
-      const text =
-        (md.text as string) ||
-        (md.content as string) ||
-        "";
+      const text = (md.text as string) || (md.content as string) || "";
 
       return {
         pageNumber: (md.pageNumber as number) || 0,
@@ -113,9 +110,10 @@ export async function queryWithLlamaIndex(
     const result = await model.generateContent(systemPrompt);
     const response = result.response.text();
 
-    const avgScore = sources.length > 0 
-      ? sources.reduce((sum, s) => sum + s.score, 0) / sources.length 
-      : 0;
+    const avgScore =
+      sources.length > 0
+        ? sources.reduce((sum, s) => sum + s.score, 0) / sources.length
+        : 0;
 
     return {
       response,
