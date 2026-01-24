@@ -8,6 +8,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const startTime = Date.now();
 
+  const edgeRuntime =
+    typeof (globalThis as any).EdgeRuntime !== "undefined" ||
+    process.env.NEXT_RUNTIME === "edge";
+
   const env = {
     google: !!process.env.GOOGLE_API_KEY,
     pineconeKey: !!process.env.PINECONE_API_KEY,
@@ -20,10 +24,16 @@ export async function GET() {
     supabaseAnon: !!(
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
     ),
-    neo4j: !!(
+    neo4jEnv: !!(
       process.env.NEO4J_URI &&
       process.env.NEO4J_USERNAME &&
       process.env.NEO4J_PASSWORD
+    ),
+    neo4jUsable: !!(
+      process.env.NEO4J_URI &&
+      process.env.NEO4J_USERNAME &&
+      process.env.NEO4J_PASSWORD &&
+      !edgeRuntime
     ),
   };
 
@@ -107,6 +117,7 @@ export async function GET() {
     status: missingRequired.length === 0 ? "ok" : "error",
     timestamp: new Date().toISOString(),
     duration: `${duration}ms`,
+    edgeRuntime,
     missingRequired,
     envPresent: env,
     services,

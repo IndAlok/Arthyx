@@ -19,16 +19,29 @@ const log = (step: string, data?: object) => {
   console.log(`[NEO4J] ${step}`, data ? JSON.stringify(data) : "");
 };
 
+function isEdgeRuntime(): boolean {
+  // Next.js Edge runtime sets globalThis.EdgeRuntime; also expose NEXT_RUNTIME.
+  return (
+    typeof (globalThis as any).EdgeRuntime !== "undefined" ||
+    process.env.NEXT_RUNTIME === "edge"
+  );
+}
+
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isConfigured(): boolean {
+function hasNeo4jEnv(): boolean {
   return !!(
     process.env.NEO4J_URI &&
     process.env.NEO4J_USERNAME &&
     process.env.NEO4J_PASSWORD
   );
+}
+
+function isConfigured(): boolean {
+  // neo4j-driver is not Edge-compatible on Cloudflare/Next Edge.
+  return hasNeo4jEnv() && !isEdgeRuntime();
 }
 
 export async function initializeDriver(): Promise<Driver | null> {
@@ -101,6 +114,24 @@ export async function healthCheck(): Promise<{
   connected: boolean;
   message: string;
 }> {
+  if (!hasNeo4jEnv()) {
+    return {
+      status: "disabled",
+      connected: false,
+      message: "Neo4j not configured",
+    };
+  }
+
+  if (isEdgeRuntime()) {
+    return {
+      status: "disabled",
+      connected: false,
+      message:
+        "Neo4j driver is not supported in Next.js Edge runtime on Cloudflare Pages. " +
+        "Neo4j features are disabled here (chat/upload will still work).",
+    };
+  }
+
   const session = await getSession();
   if (!session) {
     return {
