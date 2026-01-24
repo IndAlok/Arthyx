@@ -7,11 +7,21 @@ function getSupabaseClient(): SupabaseClient {
     return supabaseInstance;
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Supabase URL and Key are required. Set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.");
+    const missing: string[] = [];
+    if (!supabaseUrl)
+      missing.push("NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL)");
+    if (!supabaseKey)
+      missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY (or SUPABASE_ANON_KEY)");
+    throw new Error(
+      `Supabase URL and Key are required. Missing: ${missing.join(", ")}. ` +
+        "For client-side uploads, you must set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    );
   }
 
   supabaseInstance = createClient(supabaseUrl, supabaseKey);
@@ -20,7 +30,7 @@ function getSupabaseClient(): SupabaseClient {
 
 export async function uploadFile(
   file: File,
-  bucket: string = "documents"
+  bucket: string = "documents",
 ): Promise<{ url: string; path: string }> {
   const supabase = getSupabaseClient();
   const timestamp = Date.now();
@@ -38,7 +48,9 @@ export async function uploadFile(
     throw new Error(`Upload failed: ${error.message}`);
   }
 
-  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path);
+  const { data: urlData } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(data.path);
 
   return {
     url: urlData.publicUrl,
@@ -46,7 +58,10 @@ export async function uploadFile(
   };
 }
 
-export async function deleteFile(path: string, bucket: string = "documents"): Promise<void> {
+export async function deleteFile(
+  path: string,
+  bucket: string = "documents",
+): Promise<void> {
   const supabase = getSupabaseClient();
   const { error } = await supabase.storage.from(bucket).remove([path]);
   if (error) {
@@ -56,7 +71,7 @@ export async function deleteFile(path: string, bucket: string = "documents"): Pr
 
 export async function getSignedUploadUrl(
   filename: string,
-  bucket: string = "documents"
+  bucket: string = "documents",
 ): Promise<{ signedUrl: string; path: string }> {
   const supabase = getSupabaseClient();
   const timestamp = Date.now();

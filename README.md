@@ -79,6 +79,8 @@ Arthyx is open-source and ready for deployment on any Node.js compatible environ
     GOOGLE_API_KEY=your_key
     PINECONE_API_KEY=your_key
     PINECONE_INDEX_HOST=your_index_host
+    NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_publishable_anon_key
     NEO4J_URI=your_uri
     NEO4J_USERNAME=your_username
     NEO4J_PASSWORD=your_password
