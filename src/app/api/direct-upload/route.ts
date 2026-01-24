@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createSession, addDocument, updateJobStatus } from "@/lib/redis";
 import { extractEntitiesFromText } from "@/lib/neo4j";
 import { upsertVectors } from "@/lib/pinecone";
+import { deleteFileAdmin } from "@/lib/supabase";
 
 export const runtime = "edge";
 
@@ -127,6 +128,7 @@ async function processDocumentBackground(
   blobUrl: string,
   filename: string,
   sessionId: string,
+  storagePath?: string,
 ) {
   const startTime = Date.now();
 
@@ -260,6 +262,18 @@ async function processDocumentBackground(
         pagesPerSecond: parseFloat(pagesPerSecond),
       },
     });
+
+    // Storage cleanup (best-effort): delete the uploaded object after indexing.
+    if (storagePath) {
+      try {
+        await deleteFileAdmin(storagePath);
+      } catch (cleanupError) {
+        console.log(
+          "[DIRECT-UPLOAD] Storage cleanup skipped:",
+          String(cleanupError).substring(0, 150),
+        );
+      }
+    }
   } catch (error) {
     await updateJobStatus(jobId, {
       status: "failed",
@@ -272,7 +286,7 @@ async function processDocumentBackground(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { blobUrl, filename, sessionId: existingSessionId } = body;
+    const { blobUrl, filename, storagePath, sessionId: existingSessionId } = body;
 
     if (!blobUrl || !filename) {
       return NextResponse.json(
@@ -289,7 +303,7 @@ export async function POST(request: NextRequest) {
     if (!existingSessionId) {
       await createSession(sessionId);
     }
-    await addDocument(sessionId, filename);
+    await addDocument(sessionId, filename, { path: storagePath, url: blobUrl });
 
     await updateJobStatus(jobId, {
       status: "pending",
@@ -297,7 +311,7 @@ export async function POST(request: NextRequest) {
       message: "Job initialized",
     });
 
-    processDocumentBackground(jobId, blobUrl, filename, sessionId).catch(
+    processDocumentBackground(jobId, blobUrl, filename, sessionId, storagePath).catch(
       (err) => {
         console.error("[DIRECT-UPLOAD] Background error:", err);
       },

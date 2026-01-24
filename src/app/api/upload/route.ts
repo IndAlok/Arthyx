@@ -4,6 +4,7 @@ import { generateEmbeddings } from "@/lib/gemini";
 import { upsertDocumentChunks, DocumentChunk } from "@/lib/pinecone";
 import { createSession, addDocument, getSession } from "@/lib/redis";
 import { extractEntitiesFromText } from "@/lib/neo4j";
+import { deleteFileAdmin } from "@/lib/supabase";
 
 export const runtime = "edge";
 export const maxDuration = 60;
@@ -188,7 +189,9 @@ export async function POST(request: NextRequest) {
               progress: Math.round(baseProgress),
             });
 
-            const { buffer, filename } = await fetchFileFromUrl(blobUrl.url);
+            const fetched = await fetchFileFromUrl(blobUrl.url);
+            const filename = blobUrl.filename || fetched.filename;
+            const buffer = fetched.buffer;
 
             const ext = filename.toLowerCase().split(".").pop() || "";
             if (!SUPPORTED_EXTENSIONS.includes(ext)) {
@@ -309,7 +312,20 @@ export async function POST(request: NextRequest) {
               });
             }
 
-            await addDocument(sessionId, filename);
+            await addDocument(sessionId, filename, {
+              path: blobUrl.path,
+              url: blobUrl.url,
+            });
+
+            // Storage cleanup (best-effort): delete the uploaded object after indexing to save Supabase storage.
+            // Requires SUPABASE_SERVICE_ROLE_KEY set in the server environment.
+            if (blobUrl.path) {
+              try {
+                await deleteFileAdmin(blobUrl.path);
+              } catch (cleanupError) {
+                log("Storage cleanup skipped", { error: String(cleanupError) });
+              }
+            }
 
             results.push({
               filename: filename,

@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 let supabaseInstance: SupabaseClient | null = null;
+let supabaseAdminInstance: SupabaseClient | null = null;
 
 function getSupabaseClient(): SupabaseClient {
   if (supabaseInstance) {
@@ -26,6 +27,31 @@ function getSupabaseClient(): SupabaseClient {
 
   supabaseInstance = createClient(supabaseUrl, supabaseKey);
   return supabaseInstance;
+}
+
+function getSupabaseAdminClient(): SupabaseClient {
+  if (supabaseAdminInstance) {
+    return supabaseAdminInstance;
+  }
+
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+
+  // Server-only key. In Supabase dashboard this is typically labeled as the "Secret key".
+  // Do NOT expose this to the browser (never put it in NEXT_PUBLIC_*).
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(
+      "Supabase admin client not configured. Set SUPABASE_SERVICE_ROLE_KEY (server-only) and SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL.",
+    );
+  }
+
+  supabaseAdminInstance = createClient(supabaseUrl, serviceRoleKey);
+  return supabaseAdminInstance;
 }
 
 export async function uploadFile(
@@ -66,6 +92,17 @@ export async function deleteFile(
   const { error } = await supabase.storage.from(bucket).remove([path]);
   if (error) {
     throw new Error(`Delete failed: ${error.message}`);
+  }
+}
+
+export async function deleteFileAdmin(
+  path: string,
+  bucket: string = "documents",
+): Promise<void> {
+  const supabase = getSupabaseAdminClient();
+  const { error } = await supabase.storage.from(bucket).remove([path]);
+  if (error) {
+    throw new Error(`Admin delete failed: ${error.message}`);
   }
 }
 

@@ -97,9 +97,16 @@ export interface ConversationMessage {
 
 export interface SessionData {
   messages: ConversationMessage[];
-  documents: string[];
+  documents: Array<string | DocumentRef>;
   createdAt: number;
   lastActive: number;
+}
+
+export interface DocumentRef {
+  filename: string;
+  path?: string;
+  url?: string;
+  addedAt?: number;
 }
 
 export interface JobStatus {
@@ -157,6 +164,7 @@ export async function addMessage(
 export async function addDocument(
   sessionId: string,
   filename: string,
+  meta?: { path?: string; url?: string },
 ): Promise<void> {
   let session = await getSession(sessionId);
 
@@ -165,13 +173,28 @@ export async function addDocument(
     log("Session auto-created for document", { sessionId });
   }
 
-  if (!session.documents.includes(filename)) {
-    session.documents.push(filename);
+  const normalizedFilename = filename.trim();
+  const existing = session.documents.some((doc) => {
+    if (typeof doc === "string") return doc === normalizedFilename;
+    return (
+      doc.filename === normalizedFilename &&
+      (meta?.path ? doc.path === meta.path : true)
+    );
+  });
+
+  if (!existing) {
+    const ref: DocumentRef = {
+      filename: normalizedFilename,
+      path: meta?.path,
+      url: meta?.url,
+      addedAt: Date.now(),
+    };
+    session.documents.push(ref);
     session.lastActive = Date.now();
     await setJson(`session:${sessionId}`, SESSION_TTL, session);
     log("Document added", {
       sessionId,
-      filename,
+      filename: normalizedFilename,
       totalDocs: session.documents.length,
     });
   }

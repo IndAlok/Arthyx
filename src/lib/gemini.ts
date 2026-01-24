@@ -178,17 +178,30 @@ export async function generateChatResponse(
   const relevantKnowledge = getRelevantKnowledge(lastMessage);
 
   let contextSection = "";
-  
-  if (sources.length > 0) {
+
+  if (hasDocuments && documentFilenames.length > 0) {
     contextSection = `
 ## Uploaded Documents
 ${documentFilenames.map((f, i) => `${i + 1}. ${f}`).join("\n")}
+`;
 
+    if (sources.length > 0) {
+      contextSection += `
 ## Relevant Document Excerpts
-${sources.slice(0, 15).map((s, i) => `
+${sources
+  .slice(0, 15)
+  .map(
+    (s) => `
 ### [${s.filename}, Page ${s.pageNumber}] (${(s.relevanceScore * 100).toFixed(0)}% relevant)
 ${s.excerpt}
-`).join("\n---\n")}`;
+`,
+  )
+  .join("\n---\n")}`;
+    } else {
+      contextSection += `
+## Retrieval Note
+No excerpts were retrieved for this question. Do NOT claim you read the documents. Ask a clarifying question or answer using general financial knowledge and state the limitation.`;
+    }
   }
 
   const knowledgeSection = `

@@ -47,14 +47,15 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     return null;
   };
 
-  const uploadToStorage = async (file: File): Promise<string> => {
-    const { url } = await uploadFile(file);
-    return url;
+  const uploadToStorage = async (file: File): Promise<{ url: string; path: string }> => {
+    const { url, path } = await uploadFile(file);
+    return { url, path };
   };
 
   const processWithAsync = async (
     blobUrl: string,
     filename: string,
+    storagePath: string,
     updateStatus: (msg: string, pct: number) => void
   ): Promise<{ sessionId: string; pages: number }> => {
     updateStatus("Initiating processing job...", 5);
@@ -62,7 +63,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     const response = await fetch("/api/direct-upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blobUrl, filename, sessionId }),
+      body: JSON.stringify({ blobUrl, filename, storagePath, sessionId }),
     });
 
     if (!response.ok) {
@@ -110,7 +111,8 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
 
   const processSmallFile = async (
     blobUrl: string, 
-    filename: string, 
+    filename: string,
+    storagePath: string,
     updateStatus: (msg: string, pct: number) => void
   ): Promise<string> => {
     updateStatus("Processing...", 40);
@@ -118,7 +120,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
     const response = await fetch("/api/upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blobUrls: [{ url: blobUrl, filename }], sessionId }),
+      body: JSON.stringify({ blobUrls: [{ url: blobUrl, filename, path: storagePath }], sessionId }),
     });
 
     if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
@@ -180,12 +182,12 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
 
         try {
           updateStatus(`Uploading ${file.name}...`, 5);
-          const blobUrl = await uploadToStorage(file);
+          const { url: blobUrl, path: storagePath } = await uploadToStorage(file);
 
           if (isLarge) {
             updateStatus("Large PDF - async background processing...", 10);
             
-            const { sessionId: newSessionId, pages } = await processWithAsync(blobUrl, file.name, updateStatus);
+            const { sessionId: newSessionId, pages } = await processWithAsync(blobUrl, file.name, storagePath, updateStatus);
             
             onUploadComplete(newSessionId, [file.name]);
             
@@ -201,7 +203,7 @@ export default function FileUpload({ onUploadComplete, sessionId }: FileUploadPr
               return updated;
             });
           } else {
-            const newSessionId = await processSmallFile(blobUrl, file.name, updateStatus);
+            const newSessionId = await processSmallFile(blobUrl, file.name, storagePath, updateStatus);
             if (newSessionId) onUploadComplete(newSessionId, [file.name]);
             
             setFiles(prev => {

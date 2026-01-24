@@ -40,9 +40,14 @@ export async function POST(request: NextRequest) {
     if (sessionId) {
       session = await getSession(sessionId);
 
-      if (session && session.documents && session.documents.length > 0) {
+      const sessionDocuments =
+        session?.documents?.map((d: any) =>
+          typeof d === "string" ? d : (d?.filename as string),
+        ) || [];
+
+      if (session && sessionDocuments.length > 0) {
         hasDocuments = true;
-        documentFilenames = session.documents;
+        documentFilenames = sessionDocuments.filter(Boolean);
 
         const [queryEmbedding] = await generateEmbeddings([message]);
 
