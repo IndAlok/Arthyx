@@ -21,7 +21,7 @@
     "llamaindex": "^0.12.1",
     "lucide-react": "^0.562.0",
     "neo4j-driver": "^6.0.1",
-    "next": "16.1.4",
+    "next": "16.1.6",
     "pdf-lib": "^1.17.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -33,7 +33,7 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
-    "@cloudflare/next-on-pages": "^1.13.0",
+    "@cloudflare/next-on-pages": "^1.13.16",
     "@eslint/eslintrc": "^3.3.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
